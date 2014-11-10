@@ -62,19 +62,27 @@ def print_without(Without):
 	print Without.text.rstrip()
 
 
-# Finds all environments in stacks-project/name.tex
-# and returns it as a pair [withs, withouts] of lists
-# of classes as above
-def find_envs(name):
+def print_env(env):
+	if env.type in with_proofs:
+		print_with(env)
+		return
+	if env.type in without_proofs:
+		print_without(env)
+		return
+	print "Unknown type!"
+	exit(1)
 
-	# We will store lemmas, propositions, theorems in the following list
-	envs_with_proofs = []
+
+# Finds all environments in stacks-project/name.tex
+# and returns it as a pair [envs_with_proofs, envs_without_proofs] of lists
+# of classes as above
+def get_envs(name):
+
+	# We will store all envs in the following list
+	envs = []
+
 	# Initialize an empty environment with proof
 	With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
-
-	# We will store definitions, examples, exercises, situations, remarks,
-	# and remarks's in the following list
-	envs_without_proofs = []
 	# Initialize an empty environment without proof
 	Without = env_without_proof('', '', '', '', 0, 0, '')
 
@@ -92,7 +100,7 @@ def find_envs(name):
 			if line.find('end{proof}') >= 0:
 				With.ep = line_nr
 				in_proof = 0
-				envs_with_proofs.append(With)
+				envs.append(With)
 				With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 
 		if in_with:
@@ -107,7 +115,7 @@ def find_envs(name):
 			if line.find('end{' + Without.type + '}') >= 0:
 				Without.e = line_nr
 				in_without = 0
-				envs_without_proofs.append(Without)
+				envs.append(Without)
 				Without = env_without_proof('', '', '', '', 0, 0, '')
 
 		if line.find('begin{') >= 0:
@@ -127,7 +135,7 @@ def find_envs(name):
 						in_with = 0
 					# no proof present, but finished
 					elif need_proof:
-						envs_with_proofs.append(With)
+						envs.append(With)
 						With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 						need_proof = 0
 					# unfinished proof for finished environment
@@ -135,7 +143,7 @@ def find_envs(name):
 						With.bp = 0
 						With.ep = 0
 						With.proof = ''
-						envs_with_proofs.append(With)
+						envs.append(With)
 						With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 						in_proof = 0
 					# wipe out unfinished environment
@@ -165,7 +173,7 @@ def find_envs(name):
 						With.bp = 0
 						With.ep = 0
 						With.proof = ''
-						envs_with_proofs.append(With)
+						envs.append(With)
 						With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 						in_proof = 0
 					# wipe out unfinished environment
@@ -200,7 +208,7 @@ def find_envs(name):
 		in_with = 0
 	# no proof
 	elif need_proof:
-		envs_with_proofs.append(With)
+		envs.append(With)
 		With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 		need_proof = 0
 	# unfinished proof for finished environment
@@ -208,7 +216,7 @@ def find_envs(name):
 		With.bp = 0
 		With.ep = 0
 		With.proof = ''
-		envs_with_proofs.append(With)
+		envs.append(With)
 		With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 		in_proof = 0
 	# wipe out unfinished environment
@@ -217,7 +225,7 @@ def find_envs(name):
 		in_without = 0
 	# close texfile
 	texfile.close()
-	return [envs_with_proofs, envs_without_proofs]
+	return envs
 
 
 # Finds all tags if there are any
@@ -236,12 +244,35 @@ def find_tags():
 # Finds all commits in stacks-project
 def find_commits():
 	commits = subprocess.check_output(["git", "-C", "stacks-project", "log", "--pretty=format:%H", "master"])
-	return commits.splitlines()
+	# Reverse the list so that 0 is the first one
+	return commits.splitlines()[::-1]
+
+
+# Get tex file names out of list of files
+def get_names(temp):
+	names = []
+	# Get rid of files in subdirectories
+	# Get rid of non-tex files
+	# Get rid of the .tex ending
+	for i in range(0, len(temp)):
+		file_name = temp[i]
+		if file_name.find('/') >= 0:
+			continue
+		if '.tex' not in file_name:
+			continue
+		names.append(file_name[:-4])
+	return names
 
 
 # Checks out the given commit in stacks-project
 def checkout_commit(commit):
 	subprocess.call(["git", "-C", "stacks-project", "checkout", commit])
+
+
+# List files in given commit
+def get_names_commit(commit):
+	temp = subprocess.check_output(["git", "-C", "stacks-project", "ls-tree", "--name-only", commit])
+	return get_names(temp.splitlines())
 
 
 # Regular expressions to parse diffs
@@ -254,7 +285,7 @@ no_comma = re.compile('\@\@\ \-([0-9]*)\ \+([0-9]*)\ \@\@')
 # Get diff between two commits in a given file
 # commit_before should be prior in history to commit_after
 def get_diff_in(commit_before, commit_after, name):
-	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, name + '.tex'])
+	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', name + '.tex'])
 	return diff.splitlines()
 
 
@@ -319,21 +350,9 @@ def get_changes_in(commit_before, commit_after, name):
 
 # Gets a list of files changed between two commits
 # commit_before should be prior in history to commit_after
-def get_files_changed(commit_before, commit_after):
+def get_names_changed(commit_before, commit_after):
 	temp = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--name-only", commit_before + '..' + commit_after])
-	temp = temp.splitlines()
-	files_changed = []
-	# Get rid of files in subdirectories
-	# Get rid of non-tex files
-	# Get rid of the .tex ending
-	for i in range(0, len(temp)):
-		file_name = temp[i]
-		if file_name.find('/') >= 0:
-			continue
-		if '.tex' not in file_name:
-			continue
-		files_changed.append(file_name[:-4])
-	return files_changed
+	return get_names(temp.splitlines())
 
 
 # Gets a list of line_nr changes between two commits
@@ -342,7 +361,7 @@ def get_all_changes(commit_before, commit_after):
 
 	all_changes = {}
 
-	files_changed = get_files_changed(commit_before, commit_after)
+	files_changed = get_names_changed(commit_before, commit_after)
 
 	for name in files_changed:
 		all_changes[name] = get_changes_in(commit_before, commit_after, name)
@@ -362,11 +381,10 @@ def get_tag_changes(commit_before, commit_after):
 	tags_removed = []
 	tags_added = []
 
-	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, 'tags/tags'])
+	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', 'tags/tags'])
 	diff = diff.splitlines()
 
 	for line in diff:
-		print line
 		deleted = deleted_tag.findall(line)
 		if len(deleted) > 0:
 			tags_removed.append([deleted[0][0], deleted[0][1]])
@@ -376,6 +394,26 @@ def get_tag_changes(commit_before, commit_after):
 
 	return [tags_removed, tags_added]
 
+
+# Find tags whose labels got changed
+def tags_changed_labels(tag_changes):
+	tags_changed = []
+	tags_removed = tag_changes[0]
+	tags_added = tag_changes[1]
+	n = len(tags_removed)
+	m = len(tags_added)
+	i = 0
+	j = 0
+	while (i < n) and (j < m):
+		if tags_removed[i][0] == tags_added[j][0]:
+			tags_changed.append([tags_removed[i][0], tags_removed[i][1], tags_added[i][1]])
+			i = i + 1
+			continue
+		if tags_removed[i][0] < tags_added[j][0]:
+			i = i + 1
+			continue
+		j = j + 1
+	return tags_changed
 
 # Print changes functions
 def print_diff(diff):
@@ -397,21 +435,148 @@ def print_all_changes(all_changes):
 		print "In file " + name + ".tex:"
 		print_changes(all_changes[name])
 
-# Testing, testing
-commits = find_commits()
+def print_tag_changes(tag_changes):
+	print 'Removed:'
+	for tag, label in tag_changes[0]:
+		print tag + ',' + label
+	print 'Added:'
+	for tag, label in tag_changes[1]:
+		print tag + ',' + label
+	print 'Changed:'
+	tag_mod = tags_changed_labels(tag_changes)
+	for tag, oldlabel, newlabel in tag_mod:
+		print tag + ' : ' + oldlabel + ' ---> ' + newlabel
 
-#
-# Between
-# 8de7ea347d2e3ec3689aa84041e9d5ced52963cb
-# and
-# 2799b450a9a7a5a02932033b43f43d406e1a6b33
-# have interesting tag changes
-#
-# get_tag_changes('2799b450a9a7a5a02932033b43f43d406e1a6b33', '8de7ea347d2e3ec3689aa84041e9d5ced52963cb')
+
+# Try to add tags to envs
+def add_tags(envs, tags):
+	for env in envs:
+		short_label = env.label
+		long_label = env.name + '-' + short_label
+		for tag, label in tags:
+			if label == long_label:
+				env.tag = tag
+
+
+# Get all envs from a commit
+# Should only be used for the initial commit
+def get_all_envs(commit):
+
+	all_envs = {}
+
+	# get names
+	names = get_names_commit(commit)
+
+	# Checkout the commit
+	checkout_commit(commit)
+
+	# loop through tex files and add envs
+	for name in names:
+		all_envs[name] = get_envs(name)
+
+	return all_envs
+
+
+# Storing history of an env
+# commit and env are current
+# commits and envs are lists of older versions
+class env_history:
+	def __init__(self, commit, env, commits, envs):
+		self.commit = commit
+		self.env = env
+		self.commits = commits
+		self.envs = envs
+
+# Initialize an env_history
+def initial_env_history(commit, env):
+	return env_history(commit, env, [], [])
+
+# overall history
+# commit is current commit
+# env_histories is a list of env_history objects
+# commits is list of previous commits with
+# commits[0] the initial one
+class history:
+	def __init__(self, commit, env_histories, commits):
+		self.commit = commit
+		self.env_histories = env_histories
+		self.commits = commits
+
+# Initialize history
+def initial_history():
+	initial_commit = '3d32323ff9f1166afb3ee0ecaa10093dc764a50dS'
+	all_envs = get_all_envs(initial_commit)
+	env_histories = []
+	# there are no tags present so we do not need to add them
+	for name in all_envs:
+		for env in all_envs[name]:
+			env_h = initial_env_history(initial_commit, env)
+			env_histories.append(env_h)
+	return history(initial_commit, env_histories, [])
+
+# Testing, testing
+
+###
+#commits = find_commits()
+#i = 0
+#while True:
+#	tag_changes = get_tag_changes(commits[i], commits[i + 1])
+#	if (len(tag_changes[0]) > 0) and (len(tag_changes[1]) > 0):
+#		tag_mod = tags_changed_labels(tag_changes)
+#		if len(tag_mod) > 0:
+#			print i + 1
+#			print_tag_changes(tag_changes)
+#			if (len(tag_mod) < len(tag_changes[0])) and (len(tag_mod) < len(tag_changes[1])):
+#				exit(0)
+#	i = i + 1
+
+
+def test_change_tag():
+	# In the commit
+	# 42c1b1fb6bedb113f0d89a8af7124122f91009b6 (with parent aca72ce327581a43ec2f56952a551edc751b4058 )
+	# we change a latex label
+	tag_changes = get_tag_changes('aca72ce327581a43ec2f56952a551edc751b4058', '42c1b1fb6bedb113f0d89a8af7124122f91009b6')
+	print_tag_changes(tag_changes)
+	# Between
+	# 8de7ea347d2e3ec3689aa84041e9d5ced52963cb
+	# and
+	# 2799b450a9a7a5a02932033b43f43d406e1a6b33
+	# have interesting tag changes
+	#
+	tag_changes = get_tag_changes('2799b450a9a7a5a02932033b43f43d406e1a6b33', '8de7ea347d2e3ec3689aa84041e9d5ced52963cb')
+	print_tag_changes(tag_changes)
+	# Another example
+	#
+	commits = find_commits()
+	tag_changes = get_tag_changes(commits[928], commits[929])
+	print_tag_changes(tag_changes)
+
+
+def test_adding_tags_to_envs():
+	# list all commits
+	commits = find_commits()
+	# Stacks epoch occurs at
+	# fad2e125112d54e1b53a7e130ef141010f9d151d
+	# which is commits[533]
+	n = 1533
+	name = 'algebra'
+	checkout_commit(commits[n])
+	envs = get_envs('algebra')
+	tags = find_tags()
+	for env in envs:
+		if not env.tag == '':
+			print_env(env)
+			print "Should not happen!"
+			exit(1)
+	add_tags(envs, tags)
+	for env in envs:
+		if env.tag == '':
+			print_env(env)
+
 
 def test_finding_changes(commit_before, commit_after):
 
-	names = get_files_changed(commit_before, commit_after)
+	names = get_names_changed(commit_before, commit_after)
 	print names
 
 	for name in names:
@@ -423,5 +588,3 @@ def test_finding_changes(commit_before, commit_after):
 
 	all_changes = get_all_changes(commit_before, commit_after)
 	print_all_changes(all_changes)
-
-
