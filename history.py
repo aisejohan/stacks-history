@@ -1,6 +1,7 @@
 # Get detailed information out of the Stacks project history
 import subprocess
 import re
+import Levenshtein
 
 # For the moment we only look at these environments in the latex source files
 with_proofs = ['lemma', 'proposition', 'theorem']
@@ -86,7 +87,11 @@ def get_envs(name):
 	# Initialize an empty environment without proof
 	Without = env_without_proof('', '', '', '', 0, 0, '')
 
-	texfile = open('stacks-project/' + name + '.tex', 'r')
+	try:
+		texfile = open('stacks-project/' + name + '.tex', 'r')
+	except:
+		return envs
+
 	line_nr = 0
 	in_with = 0
 	need_proof = 0
@@ -456,14 +461,15 @@ def print_tag_changes(tag_changes):
 		print tag + ' : ' + oldlabel + ' ---> ' + newlabel
 
 
-# Try to add tags to envs
+# Add tags to a list of environments
+# Overwrites already existing tags
 def add_tags(envs, tags):
 	for env in envs:
-		short_label = env.label
-		long_label = env.name + '-' + short_label
+		long_label = env.name + '-' + env.label
 		for tag, label in tags:
 			if label == long_label:
 				env.tag = tag
+				continue
 
 
 # Get all envs from a commit
@@ -499,6 +505,14 @@ class env_history:
 def initial_env_history(commit, env):
 	return env_history(commit, env, [], [])
 
+# Update an env_history with a given commit and env
+def upate_env_history(env_h, commit, env):
+	# Move commit and env to the end of the lists
+	env_h.commits.append(env_h.commit)
+	env_h.envs.append(env_h.env)
+	env_h.commit = commit
+	env_h.env = env
+
 # overall history
 # commit is current commit
 # env_histories is a list of env_history objects
@@ -512,10 +526,11 @@ class history:
 
 def print_history_stats(History):
 	print "We are at commit: " + History.commit
-	print "We have done " + str(len(History.commits)) + " previous commits"
+	print "We have done " + str(len(History.commits)) + " previous commits:"
 	print "We have " + str(len(History.env_histories)) + " histories"
 	names = {}
 	types = {}
+	d = 0
 	for env_h in History.env_histories:
 		name = env_h.env.name
 		if name in names:
@@ -527,6 +542,10 @@ def print_history_stats(History):
 			types[type] += 1
 		else:
 			types[type] = 1
+		if len(env_h.commits) > d:
+			d = len(env_h.commits)
+	print
+	print "Maximum depth is: " + str(d)
 	print
 	for name in names:
 		print "We have " + str(names[name]) + " in " + name
@@ -547,25 +566,81 @@ def initial_history():
 			env_histories.append(env_h)
 	return history(initial_commit, env_histories, [])
 
+# Logic for pairs: return
+#	-1 if start + nr - 1 < b
+#	0  if intervals meet
+#	1  if e < start
+def logic_of_pairs(start, nr, b, e):
+	# If nr = 0, then change starts at start + 1
+	if nr == 0:
+		if start < b:
+			return -1
+		if e <= start:
+			return 1
+		return 0
+	# now nr > 0 so change starts at start and ends at start + nr - 1
+	if e < start:
+		return 1
+	if start + nr - 1 < b:
+		return -1
+	return 0
+
+# Compute shift
+def compute_shift(lines_removed, lines_added, i):
+	if lines_removed[i][1] > 0:
+		return lines_added[i][0] + lines_added[i][1] - lines_removed[i][0] - lines_removed[i][1]
+	return lines_added[i][0] + lines_added[i][1] - lines_removed[i][0] - 1
+
 
 # See if env from commit_before is changed
+# If not changed, but moved inside file, then update line numbers
 def env_before_is_changed(env, all_changes):
 	if not env.name in all_changes:
 		return False
 	lines_removed = all_changes[env.name][0]
-	for start, nr in lines_removed:
-		if ((env.b <= start) and (start <= env.e)) or ((start <= env.b) and (env.b <= start + nr - 1)):
+	lines_added = all_changes[env.name][1]
+	i = 0
+	while i < len(lines_removed):
+		start =  lines_removed[i][0]
+		nr = lines_removed[i][1]
+		position = logic_of_pairs(start, nr, env.b, env.e)
+		if position == 0:
 			return True
+		if position == 1:
+			break
+		i = i + 1
+
+	# adjust line numbers; i is index of chunk just beyond env
+	if i > 0:
+		shift = compute_shift(lines_removed, lines_added, i - 1)
+		env.b = env.b + shift
+		env.e = env.e + shift
+
 	if env.type in without_proofs:
 		return False
 	if env.proof == '':
 		return False
-	for start, nr in lines_removed:
-		if ((env.bp <= start) and (start <= env.ep)) or ((start <= env.bp) and (env.bp <= start + nr - 1)):
+
+	# The proof could still be after the chunk we are at
+	while i < len(lines_removed):
+		start =  lines_removed[i][0]
+		nr = lines_removed[i][1]
+		position = logic_of_pairs(start, nr, env.bp, env.ep)
+		if position == 0:
 			return True
+		if position == 1:
+			break
+		i = i + 1
+
+	# adjust line numbers; i is the index of chunk just beyond proof of env
+	if i > 0:
+		shift = compute_shift(lines_removed, lines_added, i - 1)
+		env.bp = env.bp + shift
+		env.ep = env.ep + shift
+
 	return False
 
-# See if env from commit_after was created and/or changed
+# See if env from commit_after is new or changed
 def env_after_is_changed(env, all_changes):
 	if not env.name in all_changes:
 		return False
@@ -582,34 +657,143 @@ def env_after_is_changed(env, all_changes):
 			return True
 	return False
 
+
+# Simplest kind of match: name, label, type all match
+def simple_match(env_b, env_a):
+	if (env_b.name == env_a.name and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
+		print "MATCH of type 1!"
+		return True
+	return False
+
+
+# Next easiest to detect: label got changed and we recorded this in the tags file
+def easy_match(env_b, env_a, tag_mod):
+	for tag, label_b, label_a in tag_mod:
+		if (env_b.name + '-' + env_b.label == label_b and env_a.name + '-' + env_a.label == label_a):
+			print "MATCH of type 2!"
+			if not env_a.tag == tag:
+				print "No or incorrect tag where there should be one!"
+				exit(1)
+			return True
+	return False
+
+
+# Main function, going from history for some commit to the next
+#
+# Problem we ignore for now: history is not linear
+#
+def update_history(History):
+	commit_before = History.commit
+	commit_after = next_commit(commit_before)
+	all_changes = get_all_changes(commit_before, commit_after)
+
+	# List of env_histories which are being changed
+	envs_h_b = []
+	for env_h in History.env_histories:
+		env = env_h.env
+		if env_before_is_changed(env, all_changes):
+			envs_h_b.append(env_h)
+
+	# List of new or changed envs
+	envs_a = []
+	checkout_commit(commit_after)
+	for name in all_changes:
+		envs = get_envs(name)
+		for env in envs:
+			if env_after_is_changed(env, all_changes):
+				envs_a.append(env)
+
+	# Get tag changes
+	tag_changes = get_tag_changes(commit_before, commit_after)
+	tag_del = tag_changes[0]
+	tag_new = tag_changes[1]
+	tag_mod = tags_changed_labels(tag_changes)
+
+	# Endow new or changed envs with new tags
+	# Just to put more information into envs_a before updating histories
+	add_tags(envs_a, tag_new)
+
+	# Give feedback
+	print "Changed before " + str(len(envs_h_b)) + " and after " + str(len(envs_a))
+
+	# Try to match environments between changes
+	# First time through
+	i = 0
+	while i < len(envs_h_b):
+		env_b = envs_h_b[i].env
+		j = 0
+		while j < len(envs_a):
+			env_a = envs_a[j]
+			if simple_match(env_b, env_a):
+				break
+			if easy_match(env_b, env_a, tag_mod):
+				break
+			j = j + 1
+
+		# This means we have a match with given i and j
+		if j < len(envs_a):
+			upate_env_history(envs_h_b[i], commit_after, envs_a[j])
+			del envs_h_b[i]
+			del envs_a[j]
+			# do not change i here
+		else:
+			i = i + 1
+
+	print
+	print 'Labels before:'
+	for env_h in envs_h_b:
+		if not env_h.env.label == '':
+			print  env_h.env.label
+	print
+	print 'Labels after:'
+	for env_a in envs_a:
+		if not env_a.label == '':
+			print  env_a.label
+
+	# Second time through
+	for env_h in envs_h_b:
+		env_b = env_h.env
+		for env_a in envs_a:
+			if Levenshtein.ratio(env_b.text, env_a.text) > 0.5:
+				print
+				print env_b.name
+				print env_b.type
+				print env_b.label
+				print env_b.text
+				print env_a.name
+				print env_a.type
+				print env_a.label
+				print env_a.text
+				print
+				print "RATIO",
+				print Levenshtein.ratio(env_b.text, env_a.text)
+
+	# More feedback
+	print "Left over from before " + str(len(envs_h_b)) + " and from after " + str(len(envs_a))
+
+	# TODO: add tags to envs (also changes history)
+
+	# TODO: Perhaps delete left over labels from before?
+
+	# Add left over newly created envs to History
+	for env_a in envs_a:
+		env_h = initial_env_history(commit_after, env_a)
+		History.env_histories.append(env_h)
+	# Change current commit
+	History.commits.append(commit_before)
+	History.commit = commit_after
+
+
 # Testing, testing
 
 History = initial_history()
-
+print
 print_history_stats(History)
 
-commit_before = History.commit
-commit_after = next_commit(commit_before)
-commit_after = next_commit(commit_after)
-all_changes = get_all_changes(commit_before, commit_after)
-print_all_changes(all_changes)
-
-for env_h in History.env_histories:
-	env = env_h.env
-	if env_before_is_changed(env, all_changes):
-		print_env(env)
-
-checkout_commit(commit_after)
-for name in all_changes:
-	envs = get_envs(name)
-	for env in envs:
-		if env_after_is_changed(env, all_changes):
-			print_env(env)
-
-
-
-
-
+for i in range(100):
+	update_history(History)
+	print
+	print_history_stats(History)
 
 ###
 #commits = find_commits()
