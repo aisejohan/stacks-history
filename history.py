@@ -247,6 +247,16 @@ def find_commits():
 	# Reverse the list so that 0 is the first one
 	return commits.splitlines()[::-1]
 
+# gets next commit
+def next_commit(commit):
+	commits = find_commits()
+	i = 0
+	while i < len(commits) - 1:
+		if commit == commits[i]:
+			return commits[i + 1]
+		i = i + 1
+	print "There is no next commit!"
+	return ''
 
 # Get tex file names out of list of files
 def get_names(temp):
@@ -266,7 +276,9 @@ def get_names(temp):
 
 # Checks out the given commit in stacks-project
 def checkout_commit(commit):
-	subprocess.call(["git", "-C", "stacks-project", "checkout", commit])
+	devnull = open('/dev/null', 'w')
+	subprocess.call(["git", "-C", "stacks-project", "checkout", commit], stdout = devnull, stderr = devnull)
+	devnull.close()
 
 
 # List files in given commit
@@ -275,18 +287,18 @@ def get_names_commit(commit):
 	return get_names(temp.splitlines())
 
 
-# Regular expressions to parse diffs
-two_commas = re.compile('\@\@\ \-([0-9]*)\,([0-9]*)\ \+([0-9]*)\,([0-9]*)\ \@\@')
-first_comma = re.compile('\@\@\ \-([0-9]*)\,([0-9]*)\ \+([0-9]*)\ \@\@')
-second_comma = re.compile('\@\@\ \-([0-9]*)\ \+([0-9]*)\,([0-9]*)\ \@\@')
-no_comma = re.compile('\@\@\ \-([0-9]*)\ \+([0-9]*)\ \@\@')
-
-
 # Get diff between two commits in a given file
 # commit_before should be prior in history to commit_after
 def get_diff_in(commit_before, commit_after, name):
 	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', name + '.tex'])
 	return diff.splitlines()
+
+
+# Regular expressions to parse diffs
+two_commas = re.compile('\@\@\ \-([0-9]*)\,([0-9]*)\ \+([0-9]*)\,([0-9]*)\ \@\@')
+first_comma = re.compile('\@\@\ \-([0-9]*)\,([0-9]*)\ \+([0-9]*)\ \@\@')
+second_comma = re.compile('\@\@\ \-([0-9]*)\ \+([0-9]*)\,([0-9]*)\ \@\@')
+no_comma = re.compile('\@\@\ \-([0-9]*)\ \+([0-9]*)\ \@\@')
 
 
 # Gets a list of line_nr changes between two commits
@@ -301,13 +313,13 @@ def get_changes_in(commit_before, commit_after, name):
 
 	for line in diff:
 		if line.find('@@') == 0:
-			# looks like
+			# The line looks like
 			# @@ -(old line nr),d +(new line nr),a @@
 			# meaning 5 lines where removed from old file starting at
 			# old line nr and a lines were added started at new line nr
 			# Variant: ',d' is missing if d = 1
 			# Variant: ',a' is missing if a = 1
-			# total of 4 cases
+			# total of 4 cases matching the regular expressions compiled above
 
 			result = two_commas.findall(line)
 
@@ -502,9 +514,34 @@ class history:
 		self.env_histories = env_histories
 		self.commits = commits
 
+def print_history_stats(History):
+	print "We are at commit: " + History.commit
+	print "We have done " + str(len(History.commits)) + " previous commits"
+	print "We have " + str(len(History.env_histories)) + " histories"
+	names = {}
+	types = {}
+	for env_h in History.env_histories:
+		name = env_h.env.name
+		if name in names:
+			names[name] += 1
+		else:
+			names[name] = 1
+		type = env_h.env.type
+		if type in types:
+			types[type] += 1
+		else:
+			types[type] = 1
+	print
+	for name in names:
+		print "We have " + str(names[name]) + " in " + name
+	print
+	for type in types:
+		print "We have " + str(types[type]) + " of type " + type
+
+
 # Initialize history
 def initial_history():
-	initial_commit = '3d32323ff9f1166afb3ee0ecaa10093dc764a50dS'
+	initial_commit = '3d32323ff9f1166afb3ee0ecaa10093dc764a50d'
 	all_envs = get_all_envs(initial_commit)
 	env_histories = []
 	# there are no tags present so we do not need to add them
@@ -514,7 +551,69 @@ def initial_history():
 			env_histories.append(env_h)
 	return history(initial_commit, env_histories, [])
 
+
+# See if env from commit_before is changed
+def env_before_is_changed(env, all_changes):
+	if not env.name in all_changes:
+		return False
+	lines_removed = all_changes[env.name][0]
+	for start, nr in lines_removed:
+		if ((env.b <= start) and (start <= env.e)) or ((start <= env.b) and (env.b <= start + nr - 1)):
+			return True
+	if env.type in without_proofs:
+		return False
+	if env.proof == '':
+		return False
+	for start, nr in lines_removed:
+		if ((env.bp <= start) and (start <= env.ep)) or ((start <= env.bp) and (env.bp <= start + nr - 1)):
+			return True
+	return False
+
+# See if env from commit_after was created and/or changed
+def env_after_is_changed(env, all_changes):
+	if not env.name in all_changes:
+		return False
+	lines_added = all_changes[env.name][1]
+	for start, nr in lines_added:
+		if ((env.b <= start) and (start <= env.e)) or ((start <= env.b) and (env.b <= start + nr - 1)):
+			return True
+	if env.type in without_proofs:
+		return False
+	if env.proof == '':
+		return False
+	for start, nr in lines_added:
+		if ((env.bp <= start) and (start <= env.ep)) or ((start <= env.bp) and (env.bp <= start + nr - 1)):
+			return True
+	return False
+
 # Testing, testing
+
+History = initial_history()
+
+print_history_stats(History)
+
+commit_before = History.commit
+commit_after = next_commit(commit_before)
+commit_after = next_commit(commit_after)
+all_changes = get_all_changes(commit_before, commit_after)
+print_all_changes(all_changes)
+
+for env_h in History.env_histories:
+	env = env_h.env
+	if env_before_is_changed(env, all_changes):
+		print_env(env)
+
+checkout_commit(commit_after)
+for name in all_changes:
+	envs = get_envs(name)
+	for env in envs:
+		if env_after_is_changed(env, all_changes):
+			print_env(env)
+
+
+
+
+
 
 ###
 #commits = find_commits()
@@ -588,3 +687,6 @@ def test_finding_changes(commit_before, commit_after):
 
 	all_changes = get_all_changes(commit_before, commit_after)
 	print_all_changes(all_changes)
+
+#commits = find_commits()
+#test_finding_changes(commits[11], commits[12])
