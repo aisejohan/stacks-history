@@ -324,17 +324,14 @@ def get_changes_in(commit_before, commit_after, name):
 			result = two_commas.findall(line)
 
 			if len(result) == 1 and len(result[0]) == 4:
-				if not result[0][1] == '0':
-					lines_removed.append([int(result[0][0]), int(result[0][1])])
-				if not result[0][3] == '0':
-					lines_added.append([int(result[0][2]), int(result[0][3])])
+				lines_removed.append([int(result[0][0]), int(result[0][1])])
+				lines_added.append([int(result[0][2]), int(result[0][3])])
 				continue
 
 			result = first_comma.findall(line)
 
 			if len(result) == 1 and len(result[0]) == 3:
-				if not result[0][1] == '0':
-					lines_removed.append([int(result[0][0]), int(result[0][1])])
+				lines_removed.append([int(result[0][0]), int(result[0][1])])
 				lines_added.append([int(result[0][2]), 1])
 				continue
 
@@ -342,8 +339,7 @@ def get_changes_in(commit_before, commit_after, name):
 
 			if len(result) == 1 and len(result[0]) == 3:
 				lines_removed.append([int(result[0][0]), 1])
-				if not result[0][2] == '0':
-					lines_added.append([int(result[0][1]), int(result[0][2])])
+				lines_added.append([int(result[0][1]), int(result[0][2])])
 				continue
 
 			result = no_comma.findall(line)
