@@ -653,14 +653,14 @@ def env_after_is_changed(env, all_changes):
 		return False
 	lines_added = all_changes[env.name][1]
 	for start, nr in lines_added:
-		if ((env.b <= start) and (start <= env.e)) or ((start <= env.b) and (env.b <= start + nr - 1)):
+		if logic_of_pairs(start, nr, env.b, env.e) == 0:
 			return True
 	if env.type in without_proofs:
 		return False
 	if env.proof == '':
 		return False
 	for start, nr in lines_added:
-		if ((env.bp <= start) and (start <= env.ep)) or ((start <= env.bp) and (env.bp <= start + nr - 1)):
+		if logic_of_pairs(start, nr, env.bp, env.ep) == 0:
 			return True
 	return False
 
@@ -682,15 +682,26 @@ def text_match(env_b, env_a):
 	
 
 # Next easiest to detect: label got changed and we recorded this in the tags file
-def easy_match(env_b, env_a, tag_mod):
+def tag_mod_match(env_b, env_a, tag_mod):
 	for tag, label_b, label_a in tag_mod:
 		if (env_b.name + '-' + env_b.label == label_b and env_a.name + '-' + env_a.label == label_a):
-			print "MATCH of type 2!"
+			print "MATCH by label change in tags/tags!"
 			if not env_a.tag == tag:
 				print "No or incorrect tag where there should be one!"
 				exit(1)
 			return True
 	return False
+
+# Closeness score
+def closeness_score(env_b, env_a):
+	score = 0
+	if env_b.name == env_a.name:
+		score = score + 0.05
+	if env_b.type == env_a.type:
+		score = score + 0.05
+	if env_b.label == env_a.label and not env_b.label == '':
+		score = score + 0.1
+	return(score + Levenshtein.ratio(env_b.text, env_a.text))
 
 
 # Main function, going from history for some commit to the next
@@ -704,8 +715,16 @@ def update_history(History):
 
 	# List of env_histories which are being changed
 	envs_h_b = []
+	labels_present = []
 	for env_h in History.env_histories:
 		env = env_h.env
+		if not env.label == '':
+			if env.name + '-' + env.label in labels_present:
+				print "Error: Double label!"
+				print_env(env)
+				exit(1)
+			else:
+				labels_present.append(env.name + '-' + env.label)
                 # The following line also updates line numbers
 		if env_before_is_changed(env, all_changes):
 			envs_h_b.append(env_h)
@@ -722,6 +741,14 @@ def update_history(History):
 		for env in envs:
 			if env_after_is_changed(env, all_changes):
 				envs_a.append(env)
+				# Unfortunately, it may happen that the edit consisted of adding
+				# a nonexistent proof to an env already in History. This would
+				# not have been detected above, so we need to look for these and
+				# add them to envs_h_b if necessary
+				for env_h in History.env_histories:
+					if env_h.env.name == env.name and env_h.env.text == env.text:
+						if not env_h in envs_h_b:
+							envs_h_b.append(env_h)
 			else:
 				# check existence and line numbers
 				found = 0
@@ -730,16 +757,14 @@ def update_history(History):
 						found = 1
 						if not (env_h.env.b == env.b and env_h.env.e == env.e):
 							print
-							print "Wrong line numbers!"
+							print "Warning: Wrong line numbers or double environment."
 							print_env(env_h.env)
 							print_env(env)
 							print_all_changes(all_changes)
-							exit(1)
 				if not found:
 					print
-					print "Environment not found in History!"
-					print_env(env)
-					exist(1)
+					print "Error: environment not found in History."
+					exit(1)
 
 
 	# Get tag changes
@@ -753,7 +778,14 @@ def update_history(History):
 	add_tags(envs_a, tag_new)
 
 	# Give feedback
+	print
 	print "Changed before " + str(len(envs_h_b)) + " and after " + str(len(envs_a))
+	print "Listing before labels:"
+	for env_h in envs_h_b:
+		print env_h.env.label
+	print "Listing after labels:"
+	for env_a in envs_a:
+		print env_a.label
 
 	# Try to match environments between changes
 	# First time through
@@ -767,7 +799,7 @@ def update_history(History):
 				break
 			if text_match(env_b, env_a):
 				break
-			if easy_match(env_b, env_a, tag_mod):
+			if tag_mod_match(env_b, env_a, tag_mod):
 				break
 			j = j + 1
 
@@ -780,48 +812,73 @@ def update_history(History):
 		else:
 			i = i + 1
 
-	print
-	print 'Labels before:'
-	for env_h in envs_h_b:
-		if not env_h.env.label == '':
-			print env_h.env.name + '-' + env_h.env.label
-	print
-	print 'Labels after:'
-	for env_a in envs_a:
-		if not env_a.label == '':
-			print env_a.name + '-' + env_a.label
 
 	# Second time through
 	i = 0
 	while i < len(envs_h_b):
 		env_b = envs_h_b[i].env
 		j = 0
+		best_j = -1
+		score = 0
 		while j < len(envs_a):
 			env_a = envs_a[j]
-			if Levenshtein.ratio(env_b.text, env_a.text) > 0.9:
-				print
-				print env_b.name
-				print env_b.type
-				print env_b.label
-				print env_b.text
-				print env_a.name
-				print env_a.type
-				print env_a.label
-				print env_a.text
-				print
-				print "RATIO",
-				print Levenshtein.ratio(env_b.text, env_a.text)
+			new_score = closeness_score(env_b, env_a)
+			if new_score > score:
+				best_j = j
+				score = new_score
+			j = j + 1
+		if score > 0.95:
+			print "MATCH by score!"
+			update_env_history(envs_h_b[i], commit_after, envs_a[best_j])
+			del envs_h_b[i]
+			del envs_a[best_j]
+			# do not change i here
+		else:
+			print "No match found; best score: " + str(score)
+			print_without(env_b)
+			if best_j >= 0:
+				print "Best match:"
+				print_without(envs_a[best_j])
+			else:
+				print "No new envs left over!"
+			print "Removing..."
+			History.env_histories.remove(envs_h_b[i])
+			i = i + 1
 
 	# More feedback
 	print "Left over from before " + str(len(envs_h_b)) + " and from after " + str(len(envs_a))
+	for env_h in envs_h_b:
+		print_without(env_h.env)
 
-	# TODO: add tags to envs (also changes history)
+	# add tags to envs
+	for tag, label in tag_new:
+		nr_matches = 0
+		for env_h in History.env_histories:
+			env = env_h.env
+			if env.name + '-' + env.label == label:
+				nr_matches = nr_matches + 1
+				if nr_matches > 1:
+					print "Error: multiple matches for tag: " + tag
+					print "with label: " + label
+					exit(1)
+				if not env.tag == '':
+					good = 0
+					for tag_m, label_b, label_a in tag_mod:
+						if tag == tag_m:
+							good = 1
+					if not good:
+						print "Error: modified tag not detected!"
+						exit(1)
+				env.tag = tag
 
-	# TODO: Perhaps delete left over labels from before?
+	# TODO: Check for histories with deleted tags
 
 	# Add left over newly created envs to History
 	for env_a in envs_a:
 		env_h = initial_env_history(commit_after, env_a)
+		if env_a.label == 'lemma-flat':
+			print "ADDING IT HERE"
+			print_env(env_a)
 		History.env_histories.append(env_h)
 	# Change current commit
 	History.commits.append(commit_before)
@@ -834,10 +891,17 @@ History = initial_history()
 print
 print_history_stats(History)
 
-for i in range(17):
+for i in range(1000):
 	update_history(History)
 	print
-	print_history_stats(History)
+	print "Finished with commit: " + History.commit
+	print
+	for env_h in History.env_histories:
+		if env_h.env.label == 'lemma-flat':
+			print 'AAAAAAAAA'
+			print env_h.env.b
+			print env_h.env.e
+	# print_history_stats(History)
 
 ###
 #commits = find_commits()
