@@ -492,8 +492,10 @@ def get_all_envs(commit):
 
 
 # Storing history of an env
-# commit and env are current
-# commits and envs are lists of older versions
+# commit and env are current (!)
+# commits is a list of the commits that changed our env
+# here 'change' means anything except for moving the text
+# envs is the list of states of the env during those commits
 class env_history:
 	def __init__(self, commit, env, commits, envs):
 		self.commit = commit
@@ -503,13 +505,14 @@ class env_history:
 
 # Initialize an env_history
 def initial_env_history(commit, env):
-	return env_history(commit, env, [], [])
+	return env_history(commit, env, [commit], [env])
 
 # Update an env_history with a given commit and env
-def upate_env_history(env_h, commit, env):
+# This replaces the current state as well!
+def update_env_history(env_h, commit, env):
 	# Move commit and env to the end of the lists
-	env_h.commits.append(env_h.commit)
-	env_h.envs.append(env_h.env)
+	env_h.commits.append(commit)
+	env_h.envs.append(env)
 	env_h.commit = commit
 	env_h.env = env
 
@@ -587,10 +590,14 @@ def logic_of_pairs(start, nr, b, e):
 
 # Compute shift
 def compute_shift(lines_removed, lines_added, i):
-	if lines_removed[i][1] > 0:
+	if lines_removed[i][1] > 0 and lines_added[i][1] > 0:
 		return lines_added[i][0] + lines_added[i][1] - lines_removed[i][0] - lines_removed[i][1]
-	return lines_added[i][0] + lines_added[i][1] - lines_removed[i][0] - 1
-
+	if lines_removed[i][1] == 0:
+		return lines_added[i][0] + lines_added[i][1] - lines_removed[i][0] - 1
+	if lines_added[i][1] == 0:
+		return lines_added[i][0] + 1 - lines_removed[i][0] - lines_removed[i][1]
+	print "Should not happen!"
+	exit(1)
 
 # See if env from commit_before is changed
 # If not changed, but moved inside file, then update line numbers
@@ -661,10 +668,18 @@ def env_after_is_changed(env, all_changes):
 # Simplest kind of match: name, label, type all match
 def simple_match(env_b, env_a):
 	if (env_b.name == env_a.name and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
-		print "MATCH of type 1!"
+		print "MATCH name, type, label!"
 		return True
 	return False
 
+# Match text statement exactly when no labels present
+# We also need to match the file as there is an example where the exact same statement occurs in different files.
+def text_match(env_b, env_a):
+	if env_b.label == '' and env_a.name == env_b.name and env_a.text == env_b.text:
+		print "Match name, text, no label!"
+		return True
+	return False
+	
 
 # Next easiest to detect: label got changed and we recorded this in the tags file
 def easy_match(env_b, env_a, tag_mod):
@@ -691,8 +706,13 @@ def update_history(History):
 	envs_h_b = []
 	for env_h in History.env_histories:
 		env = env_h.env
+                # The following line also updates line numbers
 		if env_before_is_changed(env, all_changes):
 			envs_h_b.append(env_h)
+		else:
+			# We are current for commit_after
+			# except for maybe a tag change
+			env_h.commit = commit_after
 
 	# List of new or changed envs
 	envs_a = []
@@ -702,6 +722,25 @@ def update_history(History):
 		for env in envs:
 			if env_after_is_changed(env, all_changes):
 				envs_a.append(env)
+			else:
+				# check existence and line numbers
+				found = 0
+				for env_h in History.env_histories:
+					if env_h.env.name == env.name and env_h.env.text == env.text:
+						found = 1
+						if not (env_h.env.b == env.b and env_h.env.e == env.e):
+							print
+							print "Wrong line numbers!"
+							print_env(env_h.env)
+							print_env(env)
+							print_all_changes(all_changes)
+							exit(1)
+				if not found:
+					print
+					print "Environment not found in History!"
+					print_env(env)
+					exist(1)
+
 
 	# Get tag changes
 	tag_changes = get_tag_changes(commit_before, commit_after)
@@ -726,13 +765,15 @@ def update_history(History):
 			env_a = envs_a[j]
 			if simple_match(env_b, env_a):
 				break
+			if text_match(env_b, env_a):
+				break
 			if easy_match(env_b, env_a, tag_mod):
 				break
 			j = j + 1
 
 		# This means we have a match with given i and j
 		if j < len(envs_a):
-			upate_env_history(envs_h_b[i], commit_after, envs_a[j])
+			update_env_history(envs_h_b[i], commit_after, envs_a[j])
 			del envs_h_b[i]
 			del envs_a[j]
 			# do not change i here
@@ -743,18 +784,21 @@ def update_history(History):
 	print 'Labels before:'
 	for env_h in envs_h_b:
 		if not env_h.env.label == '':
-			print  env_h.env.label
+			print env_h.env.name + '-' + env_h.env.label
 	print
 	print 'Labels after:'
 	for env_a in envs_a:
 		if not env_a.label == '':
-			print  env_a.label
+			print env_a.name + '-' + env_a.label
 
 	# Second time through
-	for env_h in envs_h_b:
-		env_b = env_h.env
-		for env_a in envs_a:
-			if Levenshtein.ratio(env_b.text, env_a.text) > 0.5:
+	i = 0
+	while i < len(envs_h_b):
+		env_b = envs_h_b[i].env
+		j = 0
+		while j < len(envs_a):
+			env_a = envs_a[j]
+			if Levenshtein.ratio(env_b.text, env_a.text) > 0.9:
 				print
 				print env_b.name
 				print env_b.type
@@ -790,7 +834,7 @@ History = initial_history()
 print
 print_history_stats(History)
 
-for i in range(100):
+for i in range(17):
 	update_history(History)
 	print
 	print_history_stats(History)
