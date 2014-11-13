@@ -73,24 +73,58 @@ def print_env(env):
 	print "Unknown type!"
 	exit(1)
 
+# Get tex file names out of list of files
+def get_names(temp):
+	names = []
+	# Get rid of files in subdirectories
+	# Get rid of non-tex files
+	# Get rid of the .tex ending
+	for i in range(0, len(temp)):
+		file_name = temp[i]
+		if file_name.find('/') >= 0:
+			continue
+		if '.tex' not in file_name:
+			continue
+		names.append(file_name[:-4])
+	return names
 
-# Finds all environments in stacks-project/name.tex
-# and returns it as a pair [envs_with_proofs, envs_without_proofs] of lists
-# of classes as above
-def get_envs(name):
+
+# List files in given commit
+def get_names_commit(commit):
+	temp = subprocess.check_output(["git", "-C", "stacks-project", "ls-tree", "--name-only", commit])
+	return get_names(temp.splitlines())
+
+
+# Does a file exist at a given commit in stacks-project
+def exists_file(filename, commit):
+	if subprocess.check_output(["git", "-C", "stacks-project", "ls-tree", '--name-only', commit, '--', filename]):
+		return True
+	return False
+
+# Get a file at given commit in stacks-project
+# Assumes the file exists
+def get_file(filename, commit):
+	return subprocess.check_output(["git", "-C", "stacks-project", "cat-file", '-p', commit + ':' + filename])
+
+# Finds all environments in stacks-project/name.tex at given commit
+# and returns it as a pair [envs_with_proofs, envs_without_proofs]
+# of lists of classes as above
+def get_envs(name, commit):
 
 	# We will store all envs in the following list
 	envs = []
+
+	# Check if the file exists, if not exit
+	if not exists_file(name + '.tex', commit):
+		return []
 
 	# Initialize an empty environment with proof
 	With = env_with_proof('', '', '', '', 0, 0, '', 0, 0, '')
 	# Initialize an empty environment without proof
 	Without = env_without_proof('', '', '', '', 0, 0, '')
 
-	try:
-		texfile = open('stacks-project/' + name + '.tex', 'r')
-	except:
-		return envs
+	# Use splitlines(True) to keep line endings
+	texfile = get_file(name + '.tex', commit).splitlines(True)
 
 	line_nr = 0
 	in_with = 0
@@ -228,21 +262,23 @@ def get_envs(name):
 	if in_without:
 		Without = env_without_proof('', '', '', '', 0, 0, '')
 		in_without = 0
-	# close texfile
-	texfile.close()
 	return envs
 
 
 # Finds all tags if there are any
-def find_tags():
+def find_tags(commit):
 	tags = []
-	try:
-		tagsfile = open("stacks-project/tags/tags", 'r')
-		for line in tagsfile:
-			if not line.find('#') == 0:
-				tags.append(line.rstrip().split(","))
-	except:
-		pass
+
+	# Check if there are tags
+	if not exists_file('tags/tags', commit):
+		return tags
+
+	tagsfile = get_file('tags/tags', commit).splitlines()
+
+	for line in tagsfile:
+		if not line.find('#') == 0:
+			tags.append(line.split(","))
+
 	return tags
 
 
@@ -251,6 +287,7 @@ def find_commits():
 	commits = subprocess.check_output(["git", "-C", "stacks-project", "log", "--pretty=format:%H", "master"])
 	# Reverse the list so that 0 is the first one
 	return commits.splitlines()[::-1]
+
 
 # gets next commit
 def next_commit(commit):
@@ -263,38 +300,10 @@ def next_commit(commit):
 	print "There is no next commit!"
 	return ''
 
-# Get tex file names out of list of files
-def get_names(temp):
-	names = []
-	# Get rid of files in subdirectories
-	# Get rid of non-tex files
-	# Get rid of the .tex ending
-	for i in range(0, len(temp)):
-		file_name = temp[i]
-		if file_name.find('/') >= 0:
-			continue
-		if '.tex' not in file_name:
-			continue
-		names.append(file_name[:-4])
-	return names
-
-
-# Checks out the given commit in stacks-project
-def checkout_commit(commit):
-	devnull = open('/dev/null', 'w')
-	subprocess.call(["git", "-C", "stacks-project", "checkout", commit], stdout = devnull, stderr = devnull)
-	devnull.close()
-
-
-# List files in given commit
-def get_names_commit(commit):
-	temp = subprocess.check_output(["git", "-C", "stacks-project", "ls-tree", "--name-only", commit])
-	return get_names(temp.splitlines())
-
 
 # Get diff between two commits in a given file
 # commit_before should be prior in history to commit_after
-def get_diff_in(commit_before, commit_after, name):
+def get_diff_in(name, commit_before, commit_after):
 	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', name + '.tex'])
 	return diff.splitlines()
 
@@ -309,9 +318,9 @@ no_comma = re.compile('\@\@\ \-([0-9]*)\ \+([0-9]*)\ \@\@')
 # Gets a list of line_nr changes between two commits
 # in a given file
 # commit_before should be prior in history to commit_after
-def get_changes_in(commit_before, commit_after, name):
+def get_changes_in(name, commit_before, commit_after):
 
-	diff = get_diff_in(commit_before, commit_after, name)
+	diff = get_diff_in(name, commit_before, commit_after)
 
 	lines_removed = []
 	lines_added = []
@@ -377,7 +386,7 @@ def get_all_changes(commit_before, commit_after):
 	files_changed = get_names_changed(commit_before, commit_after)
 
 	for name in files_changed:
-		all_changes[name] = get_changes_in(commit_before, commit_after, name)
+		all_changes[name] = get_changes_in(name, commit_before, commit_after)
 
 	return all_changes
 
@@ -427,6 +436,7 @@ def tags_changed_labels(tag_changes):
 			continue
 		j = j + 1
 	return tags_changed
+
 
 # Print changes functions
 def print_diff(diff):
@@ -481,12 +491,9 @@ def get_all_envs(commit):
 	# get names
 	names = get_names_commit(commit)
 
-	# Checkout the commit
-	checkout_commit(commit)
-
 	# loop through tex files and add envs
 	for name in names:
-		all_envs[name] = get_envs(name)
+		all_envs[name] = get_envs(name, commit)
 
 	return all_envs
 
@@ -556,6 +563,26 @@ def print_history_stats(History):
 	for type in types:
 		print "We have " + str(types[type]) + " of type " + type
 
+def print_all_of_histories(History):
+	print "We are at commit: " + History.commit
+	print "We have done " + str(len(History.commits)) + " previous commits:"
+	print "We have " + str(len(History.env_histories)) + " histories"
+	for env_h in History.env_histories:
+		print '--------------------------------------------------------------------------'
+		envs = env_h.envs
+		commits = env_h.commits
+		if not len(commits) == len(envs):
+			print "Error: Unequal lengths of commits and envs!"
+			exit(1)
+		print 'LENGTH = ' + str(len(envs))
+		print '--------------------------------------------------------------------------'
+		i = 0
+		while i < len(commits):
+			commit = commits[i]
+			env = envs[i]
+			print "Commit: " + commit
+			print_env(env)
+			i = i + 1
 
 # Initialize history
 def initial_history():
@@ -666,14 +693,15 @@ def env_after_is_changed(env, all_changes):
 
 
 # Simplest kind of match: name, label, type all match
-def simple_match(env_b, env_a):
+def label_match(env_b, env_a):
 	if (env_b.name == env_a.name and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
 		print "MATCH name, type, label!"
 		return True
 	return False
 
 # Match text statement exactly when no labels present
-# We also need to match the file as there is an example where the exact same statement occurs in different files.
+# We also need to match the file as there is an example
+# where the exact same statement occurs in different files.
 def text_match(env_b, env_a):
 	if env_b.label == '' and env_a.name == env_b.name and env_a.text == env_b.text:
 		print "Match name, text, no label!"
@@ -681,14 +709,21 @@ def text_match(env_b, env_a):
 	return False
 	
 
-# Next easiest to detect: label got changed and we recorded this in the tags file
+# Match where label got changed and we recorded this in the tags file
+# This should be very rare and mostly work
 def tag_mod_match(env_b, env_a, tag_mod):
 	for tag, label_b, label_a in tag_mod:
 		if (env_b.name + '-' + env_b.label == label_b and env_a.name + '-' + env_a.label == label_a):
 			print "MATCH by label change in tags/tags!"
-			if not env_a.tag == tag:
-				print "No or incorrect tag where there should be one!"
-				exit(1)
+			if not env_b.tag == tag:
+				print "Warning: nonexistent or incorrect tag where there should be one!"
+				print tag
+				print env_b.tag
+				print env_a.tag
+				print label_b
+				print label_a
+				print "Guess: due to a double label!"
+				return False
 			return True
 	return False
 
@@ -703,6 +738,81 @@ def closeness_score(env_b, env_a):
 		score = score + 0.1
 	return(score + Levenshtein.ratio(env_b.text, env_a.text))
 
+# Checking similarity of histories with the same label
+def too_similar(History, name, label):
+	i = 0
+	while i < len(History.env_histories):
+		i_env = History.env_histories[i].env
+		if i_env.name == name and i_env.label == label:
+			j = i + 1
+			while j < len(History.env_histories):
+				j_env = History.env_histories[j].env
+				if j_env.name == name and j_env.label == label:
+					if i_env.b <= j_env.b and j_env.b <= i_env.e:
+						return True
+					if i_env.b <= j_env.e and j_env.e <= i_env.e:
+						return True
+					# Can add test for overlap proofs too
+				j = j + 1
+		i = i + 1
+	return False
+
+# Check line numbers agree
+def same_line_nrs(A, B):
+	if not (A.b == B.b and A.e == B.e):
+		return False
+	if A.type in without_proofs:
+		return True
+	if not (A.bp == B.bp and A.ep == B.ep):
+		return False
+	return True
+
+# Types we do not look at for history
+def wrong_type(label, names):
+	for type in ['equation', 'section', 'subsection', 'subsubsection', 'item']:
+		if label.find(type) >= 0:
+			for name in names:
+				if label.find(name + '-' + type) == 0:
+					return True
+	return False
+
+
+# Find doubles
+def find_doubles(word, word_list, double):
+	if word in word_list:
+		double.append(word)
+		return True
+	word_list.append(word)
+	return False
+
+# Quick test
+def env_in_history(env, History):
+	for env_h in History.env_histories:
+		e = env_h.env
+		if env.name == e.name and env.b == e.b:
+			return True
+	return False
+
+# Insert a score in list of scores
+def insert_score(score, i, j, scores):
+	a = 0
+	while a < len(scores) and score < scores[a][0]:
+		a = a + 1
+	scores.insert(a, [score, i, j])
+
+# User interface
+def do_these_match(env_b, env_a):
+	print '----------------------------------------'
+	print_without(env_b)
+	print '----------------------------------------'
+	print_without(env_a)
+	while True:
+		choice = raw_input('Do these match? (y/n): ')
+		if choice == 'n':
+			return False
+		if choice == 'y':
+			return True
+
 
 # Main function, going from history for some commit to the next
 #
@@ -713,59 +823,24 @@ def update_history(History):
 	commit_after = next_commit(commit_before)
 	all_changes = get_all_changes(commit_before, commit_after)
 
-	# List of env_histories which are being changed
+	# List of env_histories which are being changed in this commit
 	envs_h_b = []
-	labels_present = []
 	for env_h in History.env_histories:
 		env = env_h.env
-		if not env.label == '':
-			if env.name + '-' + env.label in labels_present:
-				print "Error: Double label!"
-				print_env(env)
-				exit(1)
-			else:
-				labels_present.append(env.name + '-' + env.label)
-                # The following line also updates line numbers
+                # The following line
+		#	updates line numbers of env if not changed
+		#	passes if env is changed
 		if env_before_is_changed(env, all_changes):
 			envs_h_b.append(env_h)
-		else:
-			# We are current for commit_after
-			# except for maybe a tag change
-			env_h.commit = commit_after
 
-	# List of new or changed envs
+	# List of new or changed envs in this commit
 	envs_a = []
-	checkout_commit(commit_after)
 	for name in all_changes:
-		envs = get_envs(name)
+		envs = get_envs(name, commit_after)
 		for env in envs:
+			# The following line passes if env is changed
 			if env_after_is_changed(env, all_changes):
 				envs_a.append(env)
-				# Unfortunately, it may happen that the edit consisted of adding
-				# a nonexistent proof to an env already in History. This would
-				# not have been detected above, so we need to look for these and
-				# add them to envs_h_b if necessary
-				for env_h in History.env_histories:
-					if env_h.env.name == env.name and env_h.env.text == env.text:
-						if not env_h in envs_h_b:
-							envs_h_b.append(env_h)
-			else:
-				# check existence and line numbers
-				found = 0
-				for env_h in History.env_histories:
-					if env_h.env.name == env.name and env_h.env.text == env.text:
-						found = 1
-						if not (env_h.env.b == env.b and env_h.env.e == env.e):
-							print
-							print "Warning: Wrong line numbers or double environment."
-							print_env(env_h.env)
-							print_env(env)
-							print_all_changes(all_changes)
-				if not found:
-					print
-					print "Error: environment not found in History."
-					exit(1)
-
 
 	# Get tag changes
 	tag_changes = get_tag_changes(commit_before, commit_after)
@@ -773,113 +848,146 @@ def update_history(History):
 	tag_new = tag_changes[1]
 	tag_mod = tags_changed_labels(tag_changes)
 
-	# Endow new or changed envs with new tags
-	# Just to put more information into envs_a before updating histories
-	add_tags(envs_a, tag_new)
-
-	# Give feedback
-	print
-	print "Changed before " + str(len(envs_h_b)) + " and after " + str(len(envs_a))
-	print "Listing before labels:"
-	for env_h in envs_h_b:
-		print env_h.env.label
-	print "Listing after labels:"
-	for env_a in envs_a:
-		print env_a.label
-
 	# Try to match environments between changes
 	# First time through
+	matches = []
+	matches_b = set()
+	matches_a = set()
 	i = 0
 	while i < len(envs_h_b):
 		env_b = envs_h_b[i].env
 		j = 0
 		while j < len(envs_a):
+			if j in matches_a:
+				j = j + 1
+				continue
 			env_a = envs_a[j]
-			if simple_match(env_b, env_a):
-				break
-			if text_match(env_b, env_a):
-				break
-			if tag_mod_match(env_b, env_a, tag_mod):
+			# Catch the following types of matches:
+			#	name + '-' + label
+			#	text
+			#	change label in tags/tags which also correspond to edit
+			if label_match(env_b, env_a):
+				matches.append([i, j])
+				matches_b.add(i)
+				matches_a.add(j)
 				break
 			j = j + 1
+		i = i + 1
 
-		# This means we have a match with given i and j
-		if j < len(envs_a):
-			update_env_history(envs_h_b[i], commit_after, envs_a[j])
-			del envs_h_b[i]
-			del envs_a[j]
-			# do not change i here
-		else:
+	# Second time through compute scores
+	scores = []
+	i = 0
+	while i < len(envs_h_b):
+		if i in matches_b:
 			i = i + 1
-
-
-	# Second time through
-	i = 0
-	while i < len(envs_h_b):
+			continue
 		env_b = envs_h_b[i].env
 		j = 0
-		best_j = -1
-		score = 0
 		while j < len(envs_a):
+			if j in matches_a:
+				j = j + 1
+				continue
 			env_a = envs_a[j]
-			new_score = closeness_score(env_b, env_a)
-			if new_score > score:
-				best_j = j
-				score = new_score
-			j = j + 1
-		if score > 0.95:
-			print "MATCH by score!"
-			update_env_history(envs_h_b[i], commit_after, envs_a[best_j])
-			del envs_h_b[i]
-			del envs_a[best_j]
-			# do not change i here
-		else:
-			print "No match found; best score: " + str(score)
-			print_without(env_b)
-			if best_j >= 0:
-				print "Best match:"
-				print_without(envs_a[best_j])
+			score = closeness_score(env_b, env_a)
+			if score > 1.00:
+				print "MATCH by score: " + str(score)
+				matches.append([i, j])
+				matches_b.add(i)
+				matches_a.add(j)
 			else:
-				print "No new envs left over!"
-			print "Removing..."
-			History.env_histories.remove(envs_h_b[i])
+				insert_score(score, i, j, scores)
+			j = j + 1
+		i = i + 1
+	
+	top = 0
+	while top < len(scores) and scores[top][0] > 0.8:
+		top = top + 1
+	
+	a = 0
+	while a < top:
+		score = scores[a][0]
+		i = scores[a][1]
+		j = scores[a][2]
+		if not (i in matches_b or j in matches_a):
+			print '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+			print "There are " + str(len(envs_h_b) - len(matches)) + " left before and " + str(top - a) + " choices left."
+			print
+			print
+			print "MATCH by score: " + str(score)
+			if do_these_match(envs_h_b[i].env, envs_a[j]):
+				matches.append([i, j])
+				matches_b.add(i)
+				matches_a.add(j)
+		a = a + 1
+
+	# Add tags to new envs; this rarely does anything
+	add_tags(envs_a, tag_new)
+
+	for i, j in matches:
+		# carry over the tag if there is one before and not yet after
+		if envs_a[j].tag == '' and not envs_h_b[i].env.tag == '':
+			envs_a[j].tag = envs_h_b[i].env.tag
+		# update environment history
+		update_env_history(envs_h_b[i], commit_after, envs_a[j])
+	
+	i = 0
+	while i < len(envs_h_b):
+		if i in matches_b:
 			i = i + 1
-
-	# More feedback
-	print "Left over from before " + str(len(envs_h_b)) + " and from after " + str(len(envs_a))
-	for env_h in envs_h_b:
-		print_without(env_h.env)
-
-	# add tags to envs
-	for tag, label in tag_new:
-		nr_matches = 0
-		for env_h in History.env_histories:
-			env = env_h.env
-			if env.name + '-' + env.label == label:
-				nr_matches = nr_matches + 1
-				if nr_matches > 1:
-					print "Error: multiple matches for tag: " + tag
-					print "with label: " + label
-					exit(1)
-				if not env.tag == '':
-					good = 0
-					for tag_m, label_b, label_a in tag_mod:
-						if tag == tag_m:
-							good = 1
-					if not good:
-						print "Error: modified tag not detected!"
-						exit(1)
-				env.tag = tag
-
-	# TODO: Check for histories with deleted tags
+			continue
+		if not envs_h_b[i].env.label == '':
+			print "Removing: " + envs_h_b[i].env.name + '-' + envs_h_b[i].env.label
+		else:
+			print "Removing: " + envs_h_b[i].env.name
+		History.env_histories.remove(envs_h_b[i])
+		i = i + 1
 
 	# Add left over newly created envs to History
-	for env_a in envs_a:
+	j = 0
+	while j < len(envs_a):
+		if j in matches_a:
+			j = j + 1
+			continue
+		env_a = envs_a[j]
 		env_h = initial_env_history(commit_after, env_a)
-		if env_a.label == 'lemma-flat':
-			print "ADDING IT HERE"
-			print_env(env_a)
 		History.env_histories.append(env_h)
+		j = j + 1
+
+	# add tags to envs
+	names = get_names_commit(commit_after)
+	new_labels = {}
+	for tag, label in tag_new:
+		if wrong_type(label, names):
+			continue
+		new_labels[label] = tag
+
+	# add new tags to histories if necessary
+	for env_h in History.env_histories:
+		env = env_h.env
+		label = env.name + '-' + env.label
+		if label in new_labels:
+			tag = new_labels[label]
+			# Already there, then done
+			if env.tag == tag:
+				continue
+			# If there is a tag but it is not the same
+			if not env.tag == '':
+				print 'Warning: changing' + env.tag + ' to ' + tag
+			if not env_h.commit == commit_after:
+				# Here a new step in history required
+				if not env_h.commit == commit_before:
+					print "Warning: incorrect commit in environment history."
+				# set or change tag
+				env.tag = tag
+				update_env_history(env_h, commit_after, env)
+			else:
+				# Here we need to retroactively update the tag
+				env_h.envs[-1].tag = tag
+				env_h.env.tag = tag
+		else:
+			# Finally update commit on environment history
+			env_h.commit = commit_after
+
 	# Change current commit
 	History.commits.append(commit_before)
 	History.commit = commit_after
@@ -895,86 +1003,5 @@ for i in range(1000):
 	update_history(History)
 	print
 	print "Finished with commit: " + History.commit
-	print
-	for env_h in History.env_histories:
-		if env_h.env.label == 'lemma-flat':
-			print 'AAAAAAAAA'
-			print env_h.env.b
-			print env_h.env.e
 	# print_history_stats(History)
 
-###
-#commits = find_commits()
-#i = 0
-#while True:
-#	tag_changes = get_tag_changes(commits[i], commits[i + 1])
-#	if (len(tag_changes[0]) > 0) and (len(tag_changes[1]) > 0):
-#		tag_mod = tags_changed_labels(tag_changes)
-#		if len(tag_mod) > 0:
-#			print i + 1
-#			print_tag_changes(tag_changes)
-#			if (len(tag_mod) < len(tag_changes[0])) and (len(tag_mod) < len(tag_changes[1])):
-#				exit(0)
-#	i = i + 1
-
-
-def test_change_tag():
-	# In the commit
-	# 42c1b1fb6bedb113f0d89a8af7124122f91009b6 (with parent aca72ce327581a43ec2f56952a551edc751b4058 )
-	# we change a latex label
-	tag_changes = get_tag_changes('aca72ce327581a43ec2f56952a551edc751b4058', '42c1b1fb6bedb113f0d89a8af7124122f91009b6')
-	print_tag_changes(tag_changes)
-	# Between
-	# 8de7ea347d2e3ec3689aa84041e9d5ced52963cb
-	# and
-	# 2799b450a9a7a5a02932033b43f43d406e1a6b33
-	# have interesting tag changes
-	#
-	tag_changes = get_tag_changes('2799b450a9a7a5a02932033b43f43d406e1a6b33', '8de7ea347d2e3ec3689aa84041e9d5ced52963cb')
-	print_tag_changes(tag_changes)
-	# Another example
-	#
-	commits = find_commits()
-	tag_changes = get_tag_changes(commits[928], commits[929])
-	print_tag_changes(tag_changes)
-
-
-def test_adding_tags_to_envs():
-	# list all commits
-	commits = find_commits()
-	# Stacks epoch occurs at
-	# fad2e125112d54e1b53a7e130ef141010f9d151d
-	# which is commits[533]
-	n = 1533
-	name = 'algebra'
-	checkout_commit(commits[n])
-	envs = get_envs('algebra')
-	tags = find_tags()
-	for env in envs:
-		if not env.tag == '':
-			print_env(env)
-			print "Should not happen!"
-			exit(1)
-	add_tags(envs, tags)
-	for env in envs:
-		if env.tag == '':
-			print_env(env)
-
-
-def test_finding_changes(commit_before, commit_after):
-
-	names = get_names_changed(commit_before, commit_after)
-	print names
-
-	for name in names:
-		diff = get_diff_in(commit_before, commit_after, name)
-		print_diff(diff)
-
-		changes = get_changes_in(commit_before, commit_after, name)
-		print_changes(changes)
-
-	all_changes = get_all_changes(commit_before, commit_after)
-	print_all_changes(all_changes)
-
-#commits = find_commits()
-#test_finding_changes(commits[11], commits[12])
