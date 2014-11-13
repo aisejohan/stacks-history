@@ -767,6 +767,7 @@ def same_line_nrs(A, B):
 		return False
 	return True
 
+
 # Types we do not look at for history
 def wrong_type(label, names):
 	for type in ['equation', 'section', 'subsection', 'subsubsection', 'item']:
@@ -775,6 +776,22 @@ def wrong_type(label, names):
 				if label.find(name + '-' + type) == 0:
 					return True
 	return False
+
+# Return name if label is correct type
+def name_in_correct_type(label, names):
+	# ['lemma', 'proposition', 'theorem']
+	for type in with_proofs:
+		if label.find(type) >= 0:
+			for name in names:
+				if label.find(name + '-' + type) == 0:
+					return name
+	# ['definition', 'example', 'exercise', 'situation', 'remark', 'remarks']
+	for type in without_proofs:
+		if label.find(type) >= 0:
+			for name in names:
+				if label.find(name + '-' + type) == 0:
+					return name
+	return ''
 
 
 # Find doubles
@@ -818,7 +835,7 @@ def do_these_match(env_b, env_a):
 #
 # Problem we ignore for now: history is not linear
 #
-def update_history(History):
+def update_history(History, debug):
 	commit_before = History.commit
 	commit_after = next_commit(commit_before)
 	all_changes = get_all_changes(commit_before, commit_after)
@@ -833,20 +850,33 @@ def update_history(History):
 		if env_before_is_changed(env, all_changes):
 			envs_h_b.append(env_h)
 
+	# Print data
+	if debug:
+		print
+		print "Before envs"
+		for env_h in envs_h_b:
+			print env_h.env.name + ', ' + env_h.env.type + ', ' + env_h.env.label + ', ' + str(env_h.env.b) + ', ' + str(env_h.env.e)
+
 	# List of new or changed envs in this commit
 	envs_a = []
+        all_envs = {}
 	for name in all_changes:
 		envs = get_envs(name, commit_after)
+                all_envs[name] = envs
 		for env in envs:
 			# The following line passes if env is changed
 			if env_after_is_changed(env, all_changes):
 				envs_a.append(env)
+	# Print data
+	if debug:
+		print
+		print "After envs"
+		for env in envs_a:
+			print env.name + ', ' + env.type + ', ' + env.label + ', ' + str(env.b) + ', ' + str(env.e)
 
 	# Get tag changes
 	tag_changes = get_tag_changes(commit_before, commit_after)
-	tag_del = tag_changes[0]
 	tag_new = tag_changes[1]
-	tag_mod = tags_changed_labels(tag_changes)
 
 	# Try to match environments between changes
 	# First time through
@@ -864,8 +894,6 @@ def update_history(History):
 			env_a = envs_a[j]
 			# Catch the following types of matches:
 			#	name + '-' + label
-			#	text
-			#	change label in tags/tags which also correspond to edit
 			if label_match(env_b, env_a):
 				matches.append([i, j])
 				matches_b.add(i)
@@ -889,20 +917,24 @@ def update_history(History):
 				continue
 			env_a = envs_a[j]
 			score = closeness_score(env_b, env_a)
-			if score > 1.00:
+			if score > 0.95:
 				print "MATCH by score: " + str(score)
+				if debug:
+					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
+					print str(j) + ': ' + env_a.name + ', ' + env_a.type + ', ' + env_a.label + ', ' + str(env_a.b) + ', ' + str(env_a.e)
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
+				break
 			else:
 				insert_score(score, i, j, scores)
 			j = j + 1
 		i = i + 1
-	
+
 	top = 0
-	while top < len(scores) and scores[top][0] > 0.8:
+	while top < len(scores) and scores[top][0] > 0.80:
 		top = top + 1
-	
+
 	a = 0
 	while a < top:
 		score = scores[a][0]
@@ -914,7 +946,8 @@ def update_history(History):
 			print
 			print
 			print "MATCH by score: " + str(score)
-			if do_these_match(envs_h_b[i].env, envs_a[j]):
+			if True:
+			#if do_these_match(envs_h_b[i].env, envs_a[j]):
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
@@ -929,7 +962,7 @@ def update_history(History):
 			envs_a[j].tag = envs_h_b[i].env.tag
 		# update environment history
 		update_env_history(envs_h_b[i], commit_after, envs_a[j])
-	
+
 	i = 0
 	while i < len(envs_h_b):
 		if i in matches_b:
@@ -937,8 +970,12 @@ def update_history(History):
 			continue
 		if not envs_h_b[i].env.label == '':
 			print "Removing: " + envs_h_b[i].env.name + '-' + envs_h_b[i].env.label
+			if debug:
+				print_env(envs_h_b[i].env)
 		else:
 			print "Removing: " + envs_h_b[i].env.name
+			if debug:
+				print_env(envs_h_b[i].env)
 		History.env_histories.remove(envs_h_b[i])
 		i = i + 1
 
@@ -953,7 +990,7 @@ def update_history(History):
 		History.env_histories.append(env_h)
 		j = j + 1
 
-	# add tags to envs
+	# Find dictionary of new tags in terms of labels
 	names = get_names_commit(commit_after)
 	new_labels = {}
 	for tag, label in tag_new:
@@ -961,18 +998,18 @@ def update_history(History):
 			continue
 		new_labels[label] = tag
 
-	# add new tags to histories if necessary
+	# Add new tags to histories if necessary
 	for env_h in History.env_histories:
 		env = env_h.env
 		label = env.name + '-' + env.label
-		if label in new_labels:
+		if not env.label == '' and label in new_labels:
 			tag = new_labels[label]
 			# Already there, then done
 			if env.tag == tag:
 				continue
 			# If there is a tag but it is not the same
 			if not env.tag == '':
-				print 'Warning: changing' + env.tag + ' to ' + tag
+				print 'Warning: changing ' + env.tag + ' to ' + tag
 			if not env_h.commit == commit_after:
 				# Here a new step in history required
 				if not env_h.commit == commit_before:
@@ -988,6 +1025,112 @@ def update_history(History):
 			# Finally update commit on environment history
 			env_h.commit = commit_after
 
+	# Create a dictionary whose keys are changed files and whose values
+	# are lists of tags pointing to those
+	tags = find_tags(commit_after)
+	all_tags = {}
+	# After this names will be the list of files changed
+	names = []
+	for name in all_envs:
+		names.append(name)
+		all_tags[name] = []
+	# Create the lists
+	for tag, label in tags:
+		name = name_in_correct_type(label, names)
+		if name:
+			all_tags[name].append(tag)
+
+	# Double check results:
+	#	every environment in edited file should be in History
+	#	every environment in History in those files should be current
+	i = 0
+	while i < len(History.env_histories):
+		env_h = History.env_histories[i]
+		name = env_h.env.name
+		if name in all_envs:
+			found = 0
+			for env in all_envs[name]:
+				if env.type == env_h.env.type and env.label == env_h.env.label and env.b == env_h.env.b:
+					env_to_remove = env
+					found = found + 1
+			if not found == 1:
+				if found == 0:
+					print
+					print 'Warning: environment not found!'
+					print 'Trying to fix...'
+					j = 0
+					duplicates = []
+					while j < len(History.env_histories):
+						env = History.env_histories[j].env
+						# Should be the same test as above
+						if env.type == env_h.env.type and env.label == env_h.env.label and env.b == env_h.env.b:
+							duplicates.append(j)
+						j = j + 1
+					if len(duplicates) == 1:
+						print 'Not fixable!'
+						exit(1)
+					# Keep the one with longest history and among those the one which has a proof
+					max_h = 0
+					max_j = 0
+					has_proof = False
+					for j in duplicates:
+						if len(History.env_histories[j].commits) == max_h:
+							if not has_proof and not History.env_histories[j].env.bp == 0:
+									has_proof = True
+									max_j = j
+						if len(History.env_histories[j].commits) > max_h:
+							max_h = len(History.env_histories[j].commits)
+							max_j = j
+							if not History.env_histories[j].env.bp == 0:
+								has_proof = True
+					# Remove from the top down
+					for j in reversed(duplicates):
+						if not j == max_j:
+							del History.env_histories[j]
+							# Adjust index we're at if we are removing to the left of
+							if j <= i:
+								i = i - 1
+					print 'Fixed!'
+				if found > 0:
+					print
+					print 'Error: environment occurs ' + str(found) + ' times!'
+					print_env(env)
+					exit(1)
+			else:
+				# Remove the env from the list to mark it as done
+				all_envs[name].remove(env_to_remove)
+
+			found = 0
+			for tag in all_tags[name]:
+				if tag == env_h.env.tag:
+					tag_to_remove = tag
+					found = found + 1
+			if found > 1:
+				print
+				print 'Error: tag occurs ' + str(found) + ' times!'
+				print tag
+				exit(1)
+			if found == 1:
+				all_tags[name].remove(tag_to_remove)
+		i = i + 1
+
+	# Now the lists should be empty
+	for name in all_envs:
+		if len(all_envs[name]) > 0:
+			print
+			print 'Error: environment(s) not picked up in History!'
+			for env in all_envs[name]:
+				print_env(env)
+			exit(1)
+		if len(all_tags[name]) > 0:
+			print
+			print 'Warning: tag(s) pointing to ' + name + ' not picked up in History!'
+			for tag in all_tags[name]:
+				print tag,
+			print
+			print 'This can happen if environments were moved without updating tags/tags.'
+			print 'The problem should disappear in a future commit.'
+
 	# Change current commit
 	History.commits.append(commit_before)
 	History.commit = commit_after
@@ -999,8 +1142,12 @@ History = initial_history()
 print
 print_history_stats(History)
 
+debug = False
+
 for i in range(1000):
-	update_history(History)
+	if History.commit == '0ce90d6bb8037d602e012860ec74b99d16523a34':
+		debug = True
+	update_history(History, debug)
 	print
 	print "Finished with commit: " + History.commit
 	# print_history_stats(History)
