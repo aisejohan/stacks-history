@@ -265,9 +265,9 @@ def get_envs(name, commit):
 	return envs
 
 
-# Finds all tags if there are any
+# Returns a dictionary labels ---> tags if tags/tags exists
 def find_tags(commit):
-	tags = []
+	tags = {}
 
 	# Check if there are tags
 	if not exists_file('tags/tags', commit):
@@ -277,7 +277,8 @@ def find_tags(commit):
 
 	for line in tagsfile:
 		if not line.find('#') == 0:
-			tags.append(line.split(","))
+                        taglabel = line.split(",")
+			tags[taglabel[1]] = taglabel[0]
 
 	return tags
 
@@ -818,7 +819,12 @@ def insert_score(score, i, j, scores):
 	scores.insert(a, [score, i, j])
 
 # User interface
-def do_these_match(env_b, env_a):
+def do_these_match(env_b, env_a, left_b, left_a, score):
+	print '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+	print "There are " + str(left_b) + " left to match and " + str(left_a) + " choices left."
+	print
+	print
+	print "MATCH by score: " + str(score)
 	print '----------------------------------------'
 	print_without(env_b)
 	print '----------------------------------------'
@@ -895,6 +901,9 @@ def update_history(History, debug):
 			# Catch the following types of matches:
 			#	name + '-' + label
 			if label_match(env_b, env_a):
+				if debug:
+					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
+					print str(j) + ': ' + env_a.name + ', ' + env_a.type + ', ' + env_a.label + ', ' + str(env_a.b) + ', ' + str(env_a.e)
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
@@ -917,7 +926,7 @@ def update_history(History, debug):
 				continue
 			env_a = envs_a[j]
 			score = closeness_score(env_b, env_a)
-			if score > 0.95:
+			if score > 1.00:
 				print "MATCH by score: " + str(score)
 				if debug:
 					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
@@ -941,13 +950,11 @@ def update_history(History, debug):
 		i = scores[a][1]
 		j = scores[a][2]
 		if not (i in matches_b or j in matches_a):
-			print '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
-			print "There are " + str(len(envs_h_b) - len(matches)) + " left before and " + str(top - a) + " choices left."
-			print
-			print
-			print "MATCH by score: " + str(score)
 			if True:
-			#if do_these_match(envs_h_b[i].env, envs_a[j]):
+			#if do_these_match(envs_h_b[i].env, envs_a[j], len(envs_h_b) - len(matches), top - a, score):
+				if debug:
+					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
+					print str(j) + ': ' + env_a.name + ', ' + env_a.type + ', ' + env_a.label + ', ' + str(env_a.b) + ', ' + str(env_a.e)
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
@@ -963,6 +970,7 @@ def update_history(History, debug):
 		# update environment history
 		update_env_history(envs_h_b[i], commit_after, envs_a[j])
 
+	saved_histories = []
 	i = 0
 	while i < len(envs_h_b):
 		if i in matches_b:
@@ -976,7 +984,8 @@ def update_history(History, debug):
 			print "Removing: " + envs_h_b[i].env.name
 			if debug:
 				print_env(envs_h_b[i].env)
-		History.env_histories.remove(envs_h_b[i])
+		j = History.env_histories.index(envs_h_b[i])
+		saved_histories.append(History.env_histories.pop(j))
 		i = i + 1
 
 	# Add left over newly created envs to History
@@ -997,6 +1006,18 @@ def update_history(History, debug):
 		if wrong_type(label, names):
 			continue
 		new_labels[label] = tag
+
+        # Get dictionary labels ---> tags
+	tags = find_tags(commit_after)
+	# We need to add tags to new_labels to make sure all new envs get correct tag
+	for env in envs_a:
+		label = env.name + '-' + env.label
+		if not env.label == '' and label in tags:
+			if label in new_labels:
+				if not new_labels[label] == tags[label]:
+					print 'Warning: double tag ' + new_labels[label] + ', ' + tags[label] + ' for ' + label
+			else:
+				new_labels[label] = tags[label]
 
 	# Add new tags to histories if necessary
 	for env_h in History.env_histories:
@@ -1027,7 +1048,6 @@ def update_history(History, debug):
 
 	# Create a dictionary whose keys are changed files and whose values
 	# are lists of tags pointing to those
-	tags = find_tags(commit_after)
 	all_tags = {}
 	# After this names will be the list of files changed
 	names = []
@@ -1035,14 +1055,16 @@ def update_history(History, debug):
 		names.append(name)
 		all_tags[name] = []
 	# Create the lists
-	for tag, label in tags:
+	for label in tags:
 		name = name_in_correct_type(label, names)
 		if name:
-			all_tags[name].append(tag)
+			all_tags[name].append(tags[label])
 
-	# Double check results:
-	#	every environment in edited file should be in History
-	#	every environment in History in those files should be current
+	# Double check results. The next two loops do a lot of checks:
+	#	every environment in History in edited files should be current
+	#	every environment in those files should be in History
+	#	every environment in edited file should have correct tag (if there is one)
+	#	all tags in tags/tags pointing at those files should occur
 	i = 0
 	while i < len(History.env_histories):
 		env_h = History.env_histories[i]
@@ -1118,10 +1140,31 @@ def update_history(History, debug):
 	for name in all_envs:
 		if len(all_envs[name]) > 0:
 			print
-			print 'Error: environment(s) not picked up in History!'
+			print 'Warning: environment(s) not picked up in History!'
+			print 'Trying to fix...'
 			for env in all_envs[name]:
-				print_env(env)
-			exit(1)
+				i = 0
+				while i < len(saved_histories):
+					env_h = saved_histories[i]
+					# Do not look too closely, just try to match something
+					if label_match(env, env_h.env) or env.text == env_h.env.text or env.b == env_h.env.b:
+						break
+					i = i + 1
+				# We got one
+				if i < len(saved_histories):
+					env_h = saved_histories[i]
+					# carry over the tag
+					env.tag = env_h.env.tag
+					# update environment history
+					update_env_history(env_h, commit_after, env)
+					# Put it back and remove it from saved histories
+					History.env_histories.append(saved_histories.pop(i))
+				# We don't
+				else:
+					print 'Not fixable!'
+					print_env(env)
+					exit(1)
+			print 'Fixed!'
 		if len(all_tags[name]) > 0:
 			print
 			print 'Warning: tag(s) pointing to ' + name + ' not picked up in History!'
@@ -1144,9 +1187,7 @@ print_history_stats(History)
 
 debug = False
 
-for i in range(1000):
-	if History.commit == '0ce90d6bb8037d602e012860ec74b99d16523a34':
-		debug = True
+while next_commit(History.commit):
 	update_history(History, debug)
 	print
 	print "Finished with commit: " + History.commit
