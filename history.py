@@ -2,6 +2,7 @@
 import subprocess
 import re
 import Levenshtein
+import copy
 
 # For the moment we only look at these environments in the latex source files
 with_proofs = ['lemma', 'proposition', 'theorem']
@@ -283,9 +284,25 @@ def find_tags(commit):
 	return tags
 
 
+# Find parents of a commit
+def find_parents(commit):
+	commits = subprocess.check_output(["git", "-C", "stacks-project", "rev-list", "-n1", "--topo-order", "--parents", commit])
+	commits = commits.rstrip().split(' ')
+	if not commits[0] == commit:
+		print "Unexpected format in find_parents."
+		exit (1)
+	if len(commits) == 2:
+		return [commits[1]]
+	if len(commits) == 3:
+		return [commits[1], commits[2]]
+	if len(commits) > 3:
+		print 'Unexpected number of parents!'
+		exit(1)
+
+
 # Finds all commits in stacks-project
 def find_commits():
-	commits = subprocess.check_output(["git", "-C", "stacks-project", "log", "--pretty=format:%H", "master"])
+	commits = subprocess.check_output(["git", "-C", "stacks-project", "rev-list", "--topo-order", "master"])
 	# Reverse the list so that 0 is the first one
 	return commits.splitlines()[::-1]
 
@@ -839,11 +856,11 @@ def do_these_match(env_b, env_a, left_b, left_a, score):
 
 # Main function, going from history for some commit to the next
 #
-# Problem we ignore for now: history is not linear
+# Problem we ignore for now: history is not linear. Hence
+# This will only work if commit_after is **not** a merge and has History.commit as parent
 #
-def update_history(History, debug):
+def update_history(History, commit_after, debug):
 	commit_before = History.commit
-	commit_after = next_commit(commit_before)
 	all_changes = get_all_changes(commit_before, commit_after)
 
 	# List of env_histories which are being changed in this commit
@@ -1089,6 +1106,9 @@ def update_history(History, debug):
 							duplicates.append(j)
 						j = j + 1
 					if len(duplicates) == 1:
+						print name
+						print commit_before
+						print commit_after
 						print 'Not fixable!'
 						exit(1)
 					# Keep the one with longest history and among those the one which has a proof
@@ -1179,17 +1199,135 @@ def update_history(History, debug):
 	History.commit = commit_after
 
 
+# Score for use in merging; assumes same name and type
+def merge_score(env1, env2):
+	if env1.type in without_proofs:
+		return(Levenshtein.ratio(env1.text, env2.text))
+	if env1.type in with_proofs:
+		return(Levenshtein.ratio(env1.text, env2.text) + Levenshtein.ratio(env1.proof, env2.proof))
+	
+
+# Merge two histories
+#
+# Assumes History1 and History2 are the parents of merge commit
+#
+def merge_histories(History1, History2, commit_merge):
+	# Get all envs in commit_merge
+	names = get_names_commit(commit_merge)
+	all_envs = {}
+	for name in names:
+		all_envs[name] = get_envs(name, commit_merge)
+
+	# This is where we will put the histories
+	merge_histories = []
+
+	# Match environment histories to current envs
+	# First time through use label_match
+	for name in names:
+		i = 0
+		while i < len(all_envs[name]):
+			env = all_envs[name][i]
+
+			# Find matches in History1
+			match1 = -1
+			score1 = 0
+			i1 = 0
+			while i1 < len(History1.env_histories):
+				env1 = History1.env_histories[i1].env
+				if label_match(env, env1):
+					score = merge_score(env, env1)
+					if score > score1:
+						match1 = i1
+						score1 = score
+				i1 = i1 + 1
+
+			# Find matches in History2
+			match2 = -1
+			score2 = 0
+			i2 = 0
+			while i2 < len(History2.env_histories):
+				env2 = History2.env_histories[i2].env
+				if label_match(env, env2):
+					score = merge_score(env, env2)
+					if score > score2:
+						match2 = i2
+						score2 = score
+				i2 = i2 + 1
+
+			# First the case where match2 wins
+			if score2 > score1:
+				# carry over the tag
+				env.tag = History2.env_histories[match2].env.tag
+				# Update the History.history.env to fix line nrs
+				History2.env_histories[match2].env = env
+				# Update the commit
+				History2.env_histories[match2].commit = commit_merge
+				# Add it to the list
+				merge_histories.append(History2.env_histories[match2])
+				# Delete it
+				del History2.env_histories[match2]
+			elif score1 > 0:
+				# carry over the tag
+				env.tag = History1.env_histories[match1].env.tag
+				# Update the History.history.env to fix line nrs
+				History1.env_histories[match1].env = env
+				# Update the commit
+				History1.env_histories[match1].commit = commit_merge
+				# Add it to the list
+				merge_histories.append(History1.env_histories[match1])
+				# Delete it
+				del History1.env_histories[match1]
+			else:
+				print 'No match!'
+			i = i + 1
+
+
+
+
+				
+
+
+
 # Testing, testing
 
 History = initial_history()
 print
 print_history_stats(History)
 
+List_of_Histories = {}
+List_of_Histories[History.commit] = History
+
+commits = find_commits()
+print commits[0]
+print History.commit
+
 debug = False
 
-while next_commit(History.commit):
-	update_history(History, debug)
+i = 1
+while i < 100:
+	commit = commits[i]
+	parents = find_parents(commit)
+	print
+	print 'Parents are: '
+	print parents
+	if len(parents) == 2:
+		History1 = copy.deepcopy(List_of_Histories[parents[0]])
+		History2 = copy.deepcopy(List_of_Histories[parents[1]])
+		merge_histories(History1, History2, commit)
+		exit(0)
+	else:
+		parent = parents[0]
+		History = copy.deepcopy(List_of_Histories[parent])
+		update_history(History, commit, debug)
+
+	print 'Silly check!'
+	print commit
+	print History.commit
+
+	List_of_Histories[History.commit] = History
+
 	print
 	print "Finished with commit: " + History.commit
 	# print_history_stats(History)
+	i = i + 1
 
