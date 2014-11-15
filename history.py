@@ -582,6 +582,16 @@ def print_history_stats(History):
 	for type in types:
 		print "We have " + str(types[type]) + " of type " + type
 
+# Print identifiers env on one line
+def print_one_line(env):
+	if env.type in without_proofs:
+		print (env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag +
+			', ' + str(env.b) + ', ' + str(env.e))
+	if env.type in with_proofs:
+		print (env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag +
+			', ' + str(env.b) + ', ' + str(env.e) + ', ' + str(env.bp) + ', ' + str(env.ep))
+
+
 def print_all_of_histories(History):
 	print "We are at commit: " + History.commit
 	print "We have done " + str(len(History.commits)) + " previous commits:"
@@ -603,18 +613,10 @@ def print_all_of_histories(History):
 		print 'Current commit: ' + env_h.commit
 		i = 0
 		while i < len(envs):
-			env = envs[i]
-			if env.type in without_proofs:
-				print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e)
-			if env.type in with_proofs:
-				print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e) + ', ' + str(env.bp) + ', ' + str(env.ep)
+			print_one_line(envs[i])
 			i = i + 1
-		env = env_h.env
-		if env.type in without_proofs:
-			print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e)
-		if env.type in with_proofs:
-			print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e) + ', ' + str(env.bp) + ', ' + str(env.ep)
-		if not env.text == envs[-1].text:
+		print_one_line(env_h.env)
+		if not env_h.env.text == envs[-1].text:
 			print 'Different texts (should not happen).'
 
 
@@ -866,7 +868,7 @@ def update_history(History, commit_after, debug):
 		print
 		print "Before envs"
 		for env_h in envs_h_b:
-			print env_h.env.name + ', ' + env_h.env.type + ', ' + env_h.env.label + ', ' + str(env_h.env.b) + ', ' + str(env_h.env.e)
+			print_one_line(env_h.env)
 
 	# List of new or changed envs in this commit
 	envs_a = []
@@ -883,10 +885,11 @@ def update_history(History, commit_after, debug):
 		print
 		print "After envs"
 		for env in envs_a:
-			print env.name + ', ' + env.type + ', ' + env.label + ', ' + str(env.b) + ', ' + str(env.e)
+			print_one_line(env)
 
 	# Get tag changes
 	tag_changes = get_tag_changes(commit_before, commit_after)
+	tag_del = tag_changes[0]
 	tag_new = tag_changes[1]
 
 	# Try to match environments between changes
@@ -907,8 +910,10 @@ def update_history(History, commit_after, debug):
 			#	name + '-' + label
 			if label_match(env_b, env_a):
 				if debug:
-					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
-					print str(j) + ': ' + env_a.name + ', ' + env_a.type + ', ' + env_a.label + ', ' + str(env_a.b) + ', ' + str(env_a.e)
+					print str(i) + ':',
+					print_one_line(env_b)
+					print str(j) + ':',
+					print_one_line(env_a)
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
@@ -934,8 +939,10 @@ def update_history(History, commit_after, debug):
 			if score > 1.00:
 				print "MATCH by score: " + str(score)
 				if debug:
-					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
-					print str(j) + ': ' + env_a.name + ', ' + env_a.type + ', ' + env_a.label + ', ' + str(env_a.b) + ', ' + str(env_a.e)
+					print str(i) + ':',
+					print_one_line(env_b)
+					print str(j) + ':',
+					print_one_line(env_a)
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
@@ -958,8 +965,10 @@ def update_history(History, commit_after, debug):
 			if True:
 			#if do_these_match(envs_h_b[i].env, envs_a[j], len(envs_h_b) - len(matches), top - a, score):
 				if debug:
-					print str(i) + ': ' + env_b.name + ', ' + env_b.type + ', ' + env_b.label + ', ' + str(env_b.b) + ', ' + str(env_b.e)
-					print str(j) + ': ' + env_a.name + ', ' + env_a.type + ', ' + env_a.label + ', ' + str(env_a.b) + ', ' + str(env_a.e)
+					print str(i) + ':',
+					print_one_line(env_b)
+					print str(j) + ':',
+					print_one_line(env_a)
 				matches.append([i, j])
 				matches_b.add(i)
 				matches_a.add(j)
@@ -1024,6 +1033,16 @@ def update_history(History, commit_after, debug):
 			else:
 				new_labels[label] = tags[label]
 
+	# Create dictionary of label ---> tag where tag got removed and label did not get a new tag
+	# This should almost always be empty
+	removed_labels = {}
+	for tag, label in tag_del:
+		if wrong_type(label, names):
+			continue
+		if label in new_labels:
+			continue
+		removed_labels[label] = tag
+
 	# Add new tags to histories if necessary
 	for env_h in History.env_histories:
 		env = env_h.env
@@ -1032,6 +1051,9 @@ def update_history(History, commit_after, debug):
 			tag = new_labels[label]
 			# Already there, then done
 			if env.tag == tag:
+				if not env_h.commit == commit_after:
+					print 'Wrong commit on history!'
+					exit(1)
 				continue
 			# If there is a tag but it is not the same
 			if not env.tag == '':
@@ -1047,8 +1069,30 @@ def update_history(History, commit_after, debug):
 				# Here we need to retroactively update the tag
 				env_h.envs[-1].tag = tag
 				env_h.env.tag = tag
+		elif not env.label == '' and label in removed_labels:
+			tag = removed_labels[label]
+			# If not there, then done
+			if env.tag == '':
+				if not env_h.commit == commit_after:
+					print 'Wrong commit on history!'
+					exit(1)
+				continue
+			# If there is a tag but it is not the same
+			if not env.tag == tag:
+				print 'Warning: removing tag ' + env.tag + ' which should have been ' + tag
+			if not env_h.commit == commit_after:
+				# Here a new step in history is required
+				if not env_h.commit == commit_before:
+					print "Warning: incorrect commit in environment history."
+				# delete tag
+				env.tag = ''
+				update_env_history(env_h, commit_after, env)
+			else:
+				# Here we need to retroactively remove the tag
+				env_h.envs[-1].tag = ''
+				env_h.env.tag = ''
 		else:
-			# Finally update commit on environment history
+			# Finally update commit on environment history in other cases
 			env_h.commit = commit_after
 
 	# Create a dictionary whose keys are changed files and whose values
@@ -1348,7 +1392,7 @@ commits = find_commits()
 debug = False
 
 i = 1
-while i < 2300:
+while i < 100:
 	commit = commits[i]
 	parents = find_parents(commit)
 	if len(parents) == 2:
