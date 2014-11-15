@@ -1129,14 +1129,15 @@ def update_history(History, commit_after, debug):
 			if not found == 1:
 				if found == 0:
 					print
-					print 'Warning: environment not found!'
+					print 'Warning: following environment not found:'
+					print_one_line(env_h.env)
 					print 'Trying to fix...'
 					j = 0
 					duplicates = []
 					while j < len(History.env_histories):
 						env = History.env_histories[j].env
-						# Should be the same test as above
-						if env.type == env_h.env.type and env.label == env_h.env.label and env.b == env_h.env.b:
+						# Check for name and then the same test as above
+						if env.name == env_h.env.name and env.type == env_h.env.type and env.label == env_h.env.label and env.b == env_h.env.b:
 							duplicates.append(j)
 						j = j + 1
 					if len(duplicates) == 1:
@@ -1145,27 +1146,29 @@ def update_history(History, commit_after, debug):
 						print commit_after
 						print 'Not fixable!'
 						exit(1)
-					# Keep the one with longest history and among those the one which has a proof
-					max_h = 0
-					max_j = 0
-					has_proof = False
-					for j in duplicates:
-						if len(History.env_histories[j].commits) == max_h:
-							if not has_proof and not History.env_histories[j].env.bp == 0:
-									has_proof = True
-									max_j = j
-						if len(History.env_histories[j].commits) > max_h:
-							max_h = len(History.env_histories[j].commits)
-							max_j = j
-							if not History.env_histories[j].env.bp == 0:
-								has_proof = True
-					# Remove from the top down
-					for j in reversed(duplicates):
-						if not j == max_j:
-							del History.env_histories[j]
-							# Adjust index we're at if we are removing to the left of
-							if j <= i:
-								i = i - 1
+					# This should probably not happen
+					if len(duplicates) > 2:
+						print 'Error: do not know how to handle more than 2 duplicates.'
+						exit(1)
+					# Merge them; the newer one should be put on top of the old one
+					# There should be three ways to recognize which is which
+					#
+					# 1) The one with the higher index is newer
+					# 2) The one with the longer proof is newer
+					# 3) The one with the shorter history is newer
+					#
+					# Expected
+					if len(History.env_histories[duplicates[0]].commits) >= len(History.env_histories[duplicates[1]].commits) and \
+						len(History.env_histories[duplicates[0]].env.proof) <= len(History.env_histories[duplicates[1]].env.proof):
+						# update environment history of old with new
+						update_env_history(History.env_histories[duplicates[0]], commit_after, History.env_histories[duplicates[1]].env)
+						del History.env_histories[duplicates[1]]
+						# Adjust index we're at if we are removing to the left of
+						if duplicates[1] <= i:
+							i = i - 1
+					else:
+						print 'Error: something unexpected happend while fixing!'
+						exit(1)
 					print 'Fixed!'
 				if found > 0:
 					print
@@ -1337,6 +1340,7 @@ def merge_histories(History1, History2, commit_merge):
 			if score2 > score1:
 				if score2 < 1:
 					print 'Merge match by score: ' + str(score2)
+					print_one_line(env)
 				put_into_merge_history(env, History2.env_histories, match2, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 				if match1 > -1:
@@ -1344,6 +1348,7 @@ def merge_histories(History1, History2, commit_merge):
 			elif score1 > 0:
 				if score1 < 1:
 					print 'Merge match by score: ' + str(score1)
+					print_one_line(env)
 				put_into_merge_history(env, History1.env_histories, match1, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 				if match2 > -1:
@@ -1404,6 +1409,10 @@ def load_back(commit):
 
 # Testing, testing
 
+#History = load_back('8801bdd0a58773df199fd8139f57edda174f9349')
+#print_all_of_histories(History)
+#exit(0)
+
 History = initial_history()
 write_away(History)
 print
@@ -1433,6 +1442,8 @@ while i < len(commits):
 	print
 	print "Finished with commit: " + History.commit
 	# print_history_stats(History)
+	#if History.commit == '8801bdd0a58773df199fd8139f57edda174f9349':
+	#	exit(0)
 	i = i + 1
 
 
