@@ -1043,7 +1043,7 @@ def update_history(History, commit_after, debug):
 			continue
 		removed_labels[label] = tag
 
-	# Add new tags to histories if necessary
+	# Add new tags or delete removed tags to histories
 	for env_h in History.env_histories:
 		env = env_h.env
 		label = env.name + '-' + env.label
@@ -1052,8 +1052,9 @@ def update_history(History, commit_after, debug):
 			# Already there, then done
 			if env.tag == tag:
 				if not env_h.commit == commit_after:
-					print 'Wrong commit on history!'
-					exit(1)
+					print 'Info: correct tag carried.'
+					print_one_line(env)
+					env_h.commit = commit_after
 				continue
 			# If there is a tag but it is not the same
 			if not env.tag == '':
@@ -1074,7 +1075,8 @@ def update_history(History, commit_after, debug):
 			# If not there, then done
 			if env.tag == '':
 				if not env_h.commit == commit_after:
-					print 'Wrong commit on history!'
+					print 'Wrong commit on history without tag!'
+					print_one_line(env)
 					exit(1)
 				continue
 			# If there is a tag but it is not the same
@@ -1236,7 +1238,8 @@ def merge_score(env1, env2):
 	if env1.type in without_proofs:
 		return(Levenshtein.ratio(env1.text, env2.text))
 	if env1.type in with_proofs:
-		return(Levenshtein.ratio(env1.text, env2.text) + Levenshtein.ratio(env1.proof, env2.proof))
+		return((Levenshtein.ratio(env1.text, env2.text) + Levenshtein.ratio(env1.proof, env2.proof))/2)
+
 
 # Find label match with best score
 def label_match_best_score(env, histories):
@@ -1280,9 +1283,11 @@ def text_match_exactly(env, histories):
 
 
 # Put into merge history
-def put_into_merge_history(env, histories, match, commit, merge_histories):
-	# carry over the tag
-	env.tag = histories[match].env.tag
+def put_into_merge_history(env, histories, match, tags, commit, merge_histories):
+	# Set the tag
+	label = env.name + '-' + env.label
+	if not env.label == '' and label in tags:
+		env.tag = tags[label]
 	# Update the History.history.env to fix line nrs
 	histories[match].env = env
 	# Update the commit
@@ -1304,8 +1309,12 @@ def merge_histories(History1, History2, commit_merge):
 	for name in names:
 		all_envs[name] = get_envs(name, commit_merge)
 
+	# Get dictionary labels ---> tags
+	tags = find_tags(commit_merge)
+
 	# This is where we will put the histories
 	merge_histories = []
+	saved_histories = []
 
 	# Match environment histories to current envs
 	# First time through use label_match
@@ -1326,11 +1335,19 @@ def merge_histories(History1, History2, commit_merge):
 
 			# First the case where match2 wins
 			if score2 > score1:
-				put_into_merge_history(env, History2.env_histories, match2, commit_merge, merge_histories)
+				if score2 < 1:
+					print 'Merge match by score: ' + str(score2)
+				put_into_merge_history(env, History2.env_histories, match2, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
+				if match1 > -1:
+					saved_histories.append(History1.env_histories.pop(match1))
 			elif score1 > 0:
-				put_into_merge_history(env, History1.env_histories, match1, commit_merge, merge_histories)
+				if score1 < 1:
+					print 'Merge match by score: ' + str(score1)
+				put_into_merge_history(env, History1.env_histories, match1, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
+				if match2 > -1:
+					saved_histories.append(History2.env_histories.pop(match2))
 			else:
 				i = i + 1
 	
@@ -1350,10 +1367,10 @@ def merge_histories(History1, History2, commit_merge):
 
 			# First the case where match2 wins
 			if match1 > -1:
-				put_into_merge_history(env, History1.env_histories, match1, commit_merge, merge_histories)
+				put_into_merge_history(env, History1.env_histories, match1, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 			elif match2 > -1:
-				put_into_merge_history(env, History2.env_histories, match2, commit_merge, merge_histories)
+				put_into_merge_history(env, History2.env_histories, match2, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 			else:
 				print 'No match by text!'
@@ -1373,12 +1390,17 @@ def merge_histories(History1, History2, commit_merge):
 # Saving a history in histories/
 def write_away(History):
 	path = 'histories/' + History.commit
-	pickle.dump(History, open(path, 'wb'), -1)
+	fd = open(path, 'wb')
+	pickle.dump(History, fd, -1)
+	fd.close()
 
 # Loading a history from histories/
 def load_back(commit):
 	path = 'histories/' + commit
-	return pickle.load(open(path, 'rb'))
+	fd = open(path, 'rb')
+	History = pickle.load(fd)
+	fd.close()
+	return History
 
 # Testing, testing
 
@@ -1392,7 +1414,8 @@ commits = find_commits()
 debug = False
 
 i = 1
-while i < 100:
+#History = load_back(commits[i - 1])
+while i < len(commits):
 	commit = commits[i]
 	parents = find_parents(commit)
 	if len(parents) == 2:
