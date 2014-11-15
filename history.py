@@ -531,14 +531,14 @@ class env_history:
 
 # Initialize an env_history
 def initial_env_history(commit, env):
-	return env_history(commit, env, [commit], [env])
+	return env_history(commit, env, [commit], [copy.deepcopy(env)])
 
 # Update an env_history with a given commit and env
 # This replaces the current state as well!
 def update_env_history(env_h, commit, env):
 	# Move commit and env to the end of the lists
 	env_h.commits.append(commit)
-	env_h.envs.append(env)
+	env_h.envs.append(copy.deepcopy(env))
 	env_h.commit = commit
 	env_h.env = env
 
@@ -1348,7 +1348,7 @@ commits = find_commits()
 debug = False
 
 i = 1
-while i < 2000:
+while i < 2300:
 	commit = commits[i]
 	parents = find_parents(commit)
 	if len(parents) == 2:
