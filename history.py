@@ -3,6 +3,7 @@ import subprocess
 import re
 import Levenshtein
 import copy
+import cPickle as pickle
 
 # For the moment we only look at these environments in the latex source files
 with_proofs = ['lemma', 'proposition', 'theorem']
@@ -584,6 +585,8 @@ def print_history_stats(History):
 def print_all_of_histories(History):
 	print "We are at commit: " + History.commit
 	print "We have done " + str(len(History.commits)) + " previous commits:"
+	for commit in History.commits:
+		print commit
 	print "We have " + str(len(History.env_histories)) + " histories"
 	for env_h in History.env_histories:
 		print '--------------------------------------------------------------------------'
@@ -592,15 +595,28 @@ def print_all_of_histories(History):
 		if not len(commits) == len(envs):
 			print "Error: Unequal lengths of commits and envs!"
 			exit(1)
-		print 'LENGTH = ' + str(len(envs))
-		print '--------------------------------------------------------------------------'
 		i = 0
 		while i < len(commits):
 			commit = commits[i]
-			env = envs[i]
 			print "Commit: " + commit
-			print_env(env)
 			i = i + 1
+		print 'Current commit: ' + env_h.commit
+		i = 0
+		while i < len(envs):
+			env = envs[i]
+			if env.type in without_proofs:
+				print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e)
+			if env.type in with_proofs:
+				print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e) + ', ' + str(env.bp) + ', ' + str(env.ep)
+			i = i + 1
+		env = env_h.env
+		if env.type in without_proofs:
+			print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e)
+		if env.type in with_proofs:
+			print env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag + ', ' + str(env.b) + ', ' + str(env.e) + ', ' + str(env.bp) + ', ' + str(env.ep)
+		if not env.text == envs[-1].text:
+			print 'Different texts (should not happen).'
+
 
 # Initialize history
 def initial_history():
@@ -713,37 +729,9 @@ def env_after_is_changed(env, all_changes):
 # Simplest kind of match: name, label, type all match
 def label_match(env_b, env_a):
 	if (env_b.name == env_a.name and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
-		print "MATCH name, type, label!"
 		return True
 	return False
 
-# Match text statement exactly when no labels present
-# We also need to match the file as there is an example
-# where the exact same statement occurs in different files.
-def text_match(env_b, env_a):
-	if env_b.label == '' and env_a.name == env_b.name and env_a.text == env_b.text:
-		print "Match name, text, no label!"
-		return True
-	return False
-	
-
-# Match where label got changed and we recorded this in the tags file
-# This should be very rare and mostly work
-def tag_mod_match(env_b, env_a, tag_mod):
-	for tag, label_b, label_a in tag_mod:
-		if (env_b.name + '-' + env_b.label == label_b and env_a.name + '-' + env_a.label == label_a):
-			print "MATCH by label change in tags/tags!"
-			if not env_b.tag == tag:
-				print "Warning: nonexistent or incorrect tag where there should be one!"
-				print tag
-				print env_b.tag
-				print env_a.tag
-				print label_b
-				print label_a
-				print "Guess: due to a double label!"
-				return False
-			return True
-	return False
 
 # Closeness score
 def closeness_score(env_b, env_a):
@@ -1205,7 +1193,61 @@ def merge_score(env1, env2):
 		return(Levenshtein.ratio(env1.text, env2.text))
 	if env1.type in with_proofs:
 		return(Levenshtein.ratio(env1.text, env2.text) + Levenshtein.ratio(env1.proof, env2.proof))
-	
+
+# Find label match with best score
+def label_match_best_score(env, histories):
+	match = -1
+	max_score = 0
+	i = 0
+	while i < len(histories):
+		env1 = histories[i].env
+		if label_match(env, env1):
+			score = merge_score(env, env1)
+			if score > max_score:
+				match = i
+				max_score = score
+		i = i + 1
+	return [match, max_score]
+
+
+# Match text statement exactly when no labels present
+def text_match(env1, env2):
+	if not env1.label == '':
+		return False
+	if env1.type in without_proofs:
+		if env1.text == env2.text:
+			print "Match name, text, no label!"
+			return True
+	if env1.type in with_proofs:
+		if env1.text == env2.text and env1.proof == env2.proof:
+			print "Match name, text, no label!"
+			return True
+	return False
+
+# Find match with text equality
+def text_match_exactly(env, histories):
+	i = 0
+	while i < len(histories):
+		env1 = histories[i].env
+		if text_match(env, env1):
+			return i
+		i = i + 1
+	return -1
+
+
+# Put into merge history
+def put_into_merge_history(env, histories, match, commit, merge_histories):
+	# carry over the tag
+	env.tag = histories[match].env.tag
+	# Update the History.history.env to fix line nrs
+	histories[match].env = env
+	# Update the commit
+	histories[match].commit = commit
+	# Add it to the list
+	merge_histories.append(histories[match])
+	# Delete it
+	del histories[match]
+
 
 # Merge two histories
 #
@@ -1229,105 +1271,105 @@ def merge_histories(History1, History2, commit_merge):
 			env = all_envs[name][i]
 
 			# Find matches in History1
-			match1 = -1
-			score1 = 0
-			i1 = 0
-			while i1 < len(History1.env_histories):
-				env1 = History1.env_histories[i1].env
-				if label_match(env, env1):
-					score = merge_score(env, env1)
-					if score > score1:
-						match1 = i1
-						score1 = score
-				i1 = i1 + 1
+			temp = label_match_best_score(env, History1.env_histories)
+			match1 = temp[0]
+			score1 = temp[1]
 
 			# Find matches in History2
-			match2 = -1
-			score2 = 0
-			i2 = 0
-			while i2 < len(History2.env_histories):
-				env2 = History2.env_histories[i2].env
-				if label_match(env, env2):
-					score = merge_score(env, env2)
-					if score > score2:
-						match2 = i2
-						score2 = score
-				i2 = i2 + 1
+			temp = label_match_best_score(env, History2.env_histories)
+			match2 = temp[0]
+			score2 = temp[1]
 
 			# First the case where match2 wins
 			if score2 > score1:
-				# carry over the tag
-				env.tag = History2.env_histories[match2].env.tag
-				# Update the History.history.env to fix line nrs
-				History2.env_histories[match2].env = env
-				# Update the commit
-				History2.env_histories[match2].commit = commit_merge
-				# Add it to the list
-				merge_histories.append(History2.env_histories[match2])
-				# Delete it
-				del History2.env_histories[match2]
+				put_into_merge_history(env, History2.env_histories, match2, commit_merge, merge_histories)
+				del all_envs[name][i]
 			elif score1 > 0:
-				# carry over the tag
-				env.tag = History1.env_histories[match1].env.tag
-				# Update the History.history.env to fix line nrs
-				History1.env_histories[match1].env = env
-				# Update the commit
-				History1.env_histories[match1].commit = commit_merge
-				# Add it to the list
-				merge_histories.append(History1.env_histories[match1])
-				# Delete it
-				del History1.env_histories[match1]
+				put_into_merge_history(env, History1.env_histories, match1, commit_merge, merge_histories)
+				del all_envs[name][i]
 			else:
-				print 'No match!'
-			i = i + 1
+				i = i + 1
+	
+	# Second time through use full text
+	for name in names:
+		i = 0
+		while i < len(all_envs[name]):
+			env = all_envs[name][i]
 
+			# Find matches in History1
+			match1 = text_match_exactly(env, History1.env_histories)
 
+			# Find matches in History2
+			match2 = -1
+			if not match1 > -1:
+				match2 = text_match_exactly(env, History2.env_histories)
 
+			# First the case where match2 wins
+			if match1 > -1:
+				put_into_merge_history(env, History1.env_histories, match1, commit_merge, merge_histories)
+				del all_envs[name][i]
+			elif match2 > -1:
+				put_into_merge_history(env, History2.env_histories, match2, commit_merge, merge_histories)
+				del all_envs[name][i]
+			else:
+				print 'No match by text!'
+				i = i + 1
 
+	# list commits
+	commits = find_commits()
+	i = 0
+	while not commits[i] == commit_merge:
+		i = i + 1
+	
+	# Return merge
+	return history(commit_merge, merge_histories, commits[:i])
 				
 
 
+# Saving a history in histories/
+def write_away(History):
+	path = 'histories/' + History.commit
+	pickle.dump(History, open(path, 'wb'), -1)
+
+# Loading a history from histories/
+def load_back(commit):
+	path = 'histories/' + commit
+	return pickle.load(open(path, 'rb'))
 
 # Testing, testing
 
 History = initial_history()
+write_away(History)
 print
 print_history_stats(History)
 
-List_of_Histories = {}
-List_of_Histories[History.commit] = History
-
 commits = find_commits()
-print commits[0]
-print History.commit
 
 debug = False
 
 i = 1
-while i < 100:
+while i < 2000:
 	commit = commits[i]
 	parents = find_parents(commit)
-	print
-	print 'Parents are: '
-	print parents
 	if len(parents) == 2:
-		History1 = copy.deepcopy(List_of_Histories[parents[0]])
-		History2 = copy.deepcopy(List_of_Histories[parents[1]])
-		merge_histories(History1, History2, commit)
-		exit(0)
+		History1 = load_back(parents[0])
+		History2 = load_back(parents[1])
+		History = merge_histories(History1, History2, commit)
+		write_away(History)
 	else:
 		parent = parents[0]
-		History = copy.deepcopy(List_of_Histories[parent])
+		if not History.commit == parent:
+			History = load_back(parent)
 		update_history(History, commit, debug)
-
-	print 'Silly check!'
-	print commit
-	print History.commit
-
-	List_of_Histories[History.commit] = History
+		write_away(History)
 
 	print
 	print "Finished with commit: " + History.commit
 	# print_history_stats(History)
 	i = i + 1
 
+
+print_all_of_histories(History)
+print
+print_history_stats(History)
+exit(0)
