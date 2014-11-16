@@ -826,16 +826,27 @@ def insert_score(score, i, j, scores):
 	scores.insert(a, [score, i, j])
 
 # User interface
-def do_these_match(env_b, env_a, left_b, left_a, score):
+def do_these_match(i, j, a, top, envs_h_b, envs_a, matches_a, matches_b, scores, commit_after):
 	print '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+	print "Matches left over:"
+	left_a = 0
+	for aa in range(a, top):
+		if not (scores[aa][1] in matches_b or scores[aa][2] in matches_a):
+			print "Score: " + str(scores[aa][0])
+			print_one_line(envs_h_b[scores[aa][1]].env)
+			print_one_line(envs_a[scores[aa][2]])
+			left_a = left_a + 1
+	left_b = len(envs_h_b) - len(matches_b)
+	print
+        print "Commit after: " + commit_after
 	print "There are " + str(left_b) + " left to match and " + str(left_a) + " choices left."
 	print
-	print
-	print "MATCH by score: " + str(score)
-	print '----------------------------------------'
-	print_without(env_b)
-	print '----------------------------------------'
-	print_without(env_a)
+	print "MATCH by score: " + str(scores[a][0])
+	print '--------------------------------------------------------------------------------'
+	print_without(envs_h_b[i].env)
+	print '--------------------------------------------------------------------------------'
+	print_without(envs_a[j])
+	print '--------------------------------------------------------------------------------'
 	while True:
 		choice = raw_input('Do these match? (y/n): ')
 		if choice == 'n':
@@ -934,7 +945,7 @@ def update_history(History, commit_after, debug):
 				continue
 			env_a = envs_a[j]
 			score = closeness_score(env_b, env_a)
-			if score > 1.00:
+			if score > 1.05:
 				print "MATCH by score: " + str(score)
 				if debug:
 					print str(i) + ':',
@@ -951,7 +962,7 @@ def update_history(History, commit_after, debug):
 		i = i + 1
 
 	top = 0
-	while top < len(scores) and scores[top][0] > 0.80:
+	while top < len(scores) and scores[top][0] > 0.50:
 		top = top + 1
 
 	a = 0
@@ -960,8 +971,7 @@ def update_history(History, commit_after, debug):
 		i = scores[a][1]
 		j = scores[a][2]
 		if not (i in matches_b or j in matches_a):
-			if True:
-			#if do_these_match(envs_h_b[i].env, envs_a[j], len(envs_h_b) - len(matches), top - a, score):
+			if do_these_match(i, j, a, top, envs_h_b, envs_a, matches_a, matches_b, scores, commit_after):
 				print "MATCH by score: " + str(score)
 				if debug:
 					print str(i) + ':',
