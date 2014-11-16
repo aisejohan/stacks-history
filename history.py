@@ -194,8 +194,8 @@ def get_envs(name, commit):
 					With.name = name
 					With.type = type
 					if not With.label == '':
-						print "Label with already present"
-						exit(1) # check logic
+						print "Error: Label with already present"
+						exit(1)
 					With.b = line_nr
 					With.text = line
 					in_with = 1
@@ -224,8 +224,8 @@ def get_envs(name, commit):
 					Without.name = name
 					Without.type = type
 					if not Without.label == '':
-						print "Label without already present"
-						exit(1) # check logic
+						print "Error: Label without already present"
+						exit(1)
 					Without.text = line
 					Without.b = line_nr
 					in_without = 1
@@ -290,14 +290,14 @@ def find_parents(commit):
 	commits = subprocess.check_output(["git", "-C", "stacks-project", "rev-list", "-n1", "--topo-order", "--parents", commit])
 	commits = commits.rstrip().split(' ')
 	if not commits[0] == commit:
-		print "Unexpected format in find_parents."
+		print "Error: Unexpected format in find_parents."
 		exit (1)
 	if len(commits) == 2:
 		return [commits[1]]
 	if len(commits) == 3:
 		return [commits[1], commits[2]]
 	if len(commits) > 3:
-		print 'Unexpected number of parents!'
+		print 'Error: Unexpected number of parents!'
 		exit(1)
 
 
@@ -316,7 +316,7 @@ def next_commit(commit):
 		if commit == commits[i]:
 			return commits[i + 1]
 		i = i + 1
-	print "There is no next commit!"
+	print "Warning: There is no next commit!"
 	return ''
 
 
@@ -382,7 +382,7 @@ def get_changes_in(name, commit_before, commit_after):
 				lines_added.append([int(result[0][1]), 1])
 				continue
 
-			print "Unexpected format of following diff line: "
+			print "Error: Unexpected format of following diff line: "
 			print line
 			exit(1)
 
@@ -659,7 +659,7 @@ def compute_shift(lines_removed, lines_added, i):
 		return lines_added[i][0] + lines_added[i][1] - lines_removed[i][0] - 1
 	if lines_added[i][1] == 0:
 		return lines_added[i][0] + 1 - lines_removed[i][0] - lines_removed[i][1]
-	print "Should not happen!"
+	print "Error: no change where there should be one!"
 	exit(1)
 
 # See if env from commit_before is changed
@@ -865,8 +865,7 @@ def update_history(History, commit_after, debug):
 
 	# Print data
 	if debug:
-		print
-		print "Before envs"
+		print "Debug: before envs:"
 		for env_h in envs_h_b:
 			print_one_line(env_h.env)
 
@@ -882,8 +881,7 @@ def update_history(History, commit_after, debug):
 				envs_a.append(env)
 	# Print data
 	if debug:
-		print
-		print "After envs"
+		print "Debug: after envs"
 		for env in envs_a:
 			print_one_line(env)
 
@@ -964,6 +962,7 @@ def update_history(History, commit_after, debug):
 		if not (i in matches_b or j in matches_a):
 			if True:
 			#if do_these_match(envs_h_b[i].env, envs_a[j], len(envs_h_b) - len(matches), top - a, score):
+				print "MATCH by score: " + str(score)
 				if debug:
 					print str(i) + ':',
 					print_one_line(env_b)
@@ -990,14 +989,10 @@ def update_history(History, commit_after, debug):
 		if i in matches_b:
 			i = i + 1
 			continue
-		if not envs_h_b[i].env.label == '':
-			print "Removing: " + envs_h_b[i].env.name + '-' + envs_h_b[i].env.label
-			if debug:
-				print_env(envs_h_b[i].env)
-		else:
-			print "Removing: " + envs_h_b[i].env.name
-			if debug:
-				print_env(envs_h_b[i].env)
+		print "Removing:",
+		print_one_line(envs_h_b[i].env)
+		if debug:
+			print_env(envs_h_b[i].env)
 		j = History.env_histories.index(envs_h_b[i])
 		saved_histories.append(History.env_histories.pop(j))
 		i = i + 1
@@ -1075,7 +1070,7 @@ def update_history(History, commit_after, debug):
 			# If not there, then done
 			if env.tag == '':
 				if not env_h.commit == commit_after:
-					print 'Wrong commit on history without tag!'
+					print 'Error: Wrong commit on history without tag!'
 					print_one_line(env)
 					exit(1)
 				continue
@@ -1128,8 +1123,10 @@ def update_history(History, commit_after, debug):
 					found = found + 1
 			if not found == 1:
 				if found == 0:
-					print
-					print 'Warning: following environment not found:'
+					# Best guess is that this happens because we added an environment this time through
+					# but we should not have done so. One way this happens is if a proof gets added
+					# but the text of the lemma, proposition, theorem does not get changed.
+					print 'Warning: duplicate environment'
 					print_one_line(env_h.env)
 					print 'Trying to fix...'
 					j = 0
@@ -1144,7 +1141,7 @@ def update_history(History, commit_after, debug):
 						print name
 						print commit_before
 						print commit_after
-						print 'Not fixable!'
+						print 'Error: Not fixable!'
 						exit(1)
 					# This should probably not happen
 					if len(duplicates) > 2:
@@ -1196,8 +1193,11 @@ def update_history(History, commit_after, debug):
 	# Now the lists should be empty
 	for name in all_envs:
 		if len(all_envs[name]) > 0:
-			print
-			print 'Warning: environment(s) not picked up in History!'
+			# What this probably means is that we were too aggressive in removing environments
+			# hence we try to add the correct one back
+			print 'Warning: missing environments!'
+			for env in all_envs[name]:
+				print_one_line(env)
 			print 'Trying to fix...'
 			for env in all_envs[name]:
 				i = 0
@@ -1223,8 +1223,7 @@ def update_history(History, commit_after, debug):
 					exit(1)
 			print 'Fixed!'
 		if len(all_tags[name]) > 0:
-			print
-			print 'Warning: tag(s) pointing to ' + name + ' not picked up in History!'
+			print 'Warning: absent tags pointing to environments in ' + name
 			for tag in all_tags[name]:
 				print tag,
 			print
@@ -1266,11 +1265,9 @@ def text_match(env1, env2):
 		return False
 	if env1.type in without_proofs:
 		if env1.text == env2.text:
-			print "Match name, text, no label!"
 			return True
 	if env1.type in with_proofs:
 		if env1.text == env2.text and env1.proof == env2.proof:
-			print "Match name, text, no label!"
 			return True
 	return False
 
@@ -1306,6 +1303,7 @@ def put_into_merge_history(env, histories, match, tags, commit, merge_histories)
 # Assumes History1 and History2 are the parents of merge commit
 #
 def merge_histories(History1, History2, commit_merge):
+	print "Info: merge!"
 	# Get all envs in commit_merge
 	names = get_names_commit(commit_merge)
 	all_envs = {}
@@ -1372,13 +1370,19 @@ def merge_histories(History1, History2, commit_merge):
 
 			# First the case where match2 wins
 			if match1 > -1:
+				print 'Merge match by text:',
+				print_one_line(env)
 				put_into_merge_history(env, History1.env_histories, match1, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 			elif match2 > -1:
+				print 'Merge match by text:',
+				print_one_line(env)
 				put_into_merge_history(env, History2.env_histories, match2, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 			else:
-				print 'No match by text!'
+				# Fall through
+				print 'Error: No match by text!'
+				exit(1)
 				i = i + 1
 
 	# list commits
