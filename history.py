@@ -4,6 +4,7 @@ import re
 import Levenshtein
 import copy
 import cPickle as pickle
+import os
 
 # For the moment we only look at these environments in the latex source files
 with_proofs = ['lemma', 'proposition', 'theorem']
@@ -728,6 +729,17 @@ def env_after_is_changed(env, all_changes):
 	return False
 
 
+# Match text statement and proof if present
+def text_match(env1, env2):
+	if env1.type in without_proofs:
+		if env1.text == env2.text:
+			return True
+	if env1.type in with_proofs:
+		if env1.text == env2.text and env1.proof == env2.proof:
+			return True
+	return False
+
+
 # Simplest kind of match: name, label, type all match
 def label_match(env_b, env_a):
 	if (env_b.name == env_a.name and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
@@ -945,24 +957,24 @@ def update_history(History, commit_after, debug):
 				continue
 			env_a = envs_a[j]
 			score = closeness_score(env_b, env_a)
-			if score > 1.05:
-				print "MATCH by score: " + str(score)
-				if debug:
-					print str(i) + ':',
-					print_one_line(env_b)
-					print str(j) + ':',
-					print_one_line(env_a)
-				matches.append([i, j])
-				matches_b.add(i)
-				matches_a.add(j)
-				break
-			else:
-				insert_score(score, i, j, scores)
+#			if score > 1.05:
+#				print "MATCH by score: " + str(score)
+#				if debug:
+#					print str(i) + ':',
+#					print_one_line(env_b)
+#					print str(j) + ':',
+#					print_one_line(env_a)
+#				matches.append([i, j])
+#				matches_b.add(i)
+#				matches_a.add(j)
+#				break
+#			else:
+			insert_score(score, i, j, scores)
 			j = j + 1
 		i = i + 1
 
 	top = 0
-	while top < len(scores) and scores[top][0] > 0.50:
+	while top < len(scores) and scores[top][0] > 0.69:
 		top = top + 1
 
 	a = 0
@@ -971,7 +983,7 @@ def update_history(History, commit_after, debug):
 		i = scores[a][1]
 		j = scores[a][2]
 		if not (i in matches_b or j in matches_a):
-			if do_these_match(i, j, a, top, envs_h_b, envs_a, matches_a, matches_b, scores, commit_after):
+			if True: #do_these_match(i, j, a, top, envs_h_b, envs_a, matches_a, matches_b, scores, commit_after):
 				print "MATCH by score: " + str(score)
 				if debug:
 					print str(i) + ':',
@@ -990,8 +1002,27 @@ def update_history(History, commit_after, debug):
 		# carry over the tag if there is one before and not yet after
 		if envs_a[j].tag == '' and not envs_h_b[i].env.tag == '':
 			envs_a[j].tag = envs_h_b[i].env.tag
-		# update environment history
-		update_env_history(envs_h_b[i], commit_after, envs_a[j])
+		# Because the diff does not just record changes but also
+		# records pieces of text getting moved, it can happen that
+		# we think there is a change but all that happened was that
+		# the environment got moved within
+		# the file and nothing else changed. In this case we do not
+		# update the environment history but only adjust the line numbers
+		if envs_a[j].name == envs_h_b[i].env.name and \
+				envs_a[j].type == envs_h_b[i].env.type and \
+				envs_a[j].label == envs_h_b[i].env.label and \
+				envs_a[j].tag == envs_h_b[i].env.tag and \
+				text_match(envs_a[j], envs_h_b[i].env):
+			print "Moved environment:"
+			print_one_line(envs_a[j])
+			envs_h_b[i].env.b = envs_a[j].b
+			envs_h_b[i].env.e = envs_a[j].e
+			if envs_a[j].type in with_proofs:
+				envs_h_b[i].env.bp = envs_a[j].bp
+				envs_h_b[i].env.ep = envs_a[j].ep
+		else:
+			# update environment history
+			update_env_history(envs_h_b[i], commit_after, envs_a[j])
 
 	saved_histories = []
 	i = 0
@@ -1057,8 +1088,9 @@ def update_history(History, commit_after, debug):
 			# Already there, then done
 			if env.tag == tag:
 				if not env_h.commit == commit_after:
-					print 'Info: correct tag carried.'
-					print_one_line(env)
+					if debug:
+						print 'Info: correct tag carried.'
+						print_one_line(env)
 					env_h.commit = commit_after
 				continue
 			# If there is a tag but it is not the same
@@ -1269,18 +1301,6 @@ def label_match_best_score(env, histories):
 	return [match, max_score]
 
 
-# Match text statement exactly when no labels present
-def text_match(env1, env2):
-	if not env1.label == '':
-		return False
-	if env1.type in without_proofs:
-		if env1.text == env2.text:
-			return True
-	if env1.type in with_proofs:
-		if env1.text == env2.text and env1.proof == env2.proof:
-			return True
-	return False
-
 # Find match with text equality
 def text_match_exactly(env, histories):
 	i = 0
@@ -1325,7 +1345,6 @@ def merge_histories(History1, History2, commit_merge):
 
 	# This is where we will put the histories
 	merge_histories = []
-	saved_histories = []
 
 	# Match environment histories to current envs
 	# First time through use label_match
@@ -1352,7 +1371,7 @@ def merge_histories(History1, History2, commit_merge):
 				put_into_merge_history(env, History2.env_histories, match2, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 				if match1 > -1:
-					saved_histories.append(History1.env_histories.pop(match1))
+					del History1.env_histories[match1]
 			elif score1 > 0:
 				if score1 < 1:
 					print 'Merge match by score: ' + str(score1)
@@ -1360,7 +1379,7 @@ def merge_histories(History1, History2, commit_merge):
 				put_into_merge_history(env, History1.env_histories, match1, tags, commit_merge, merge_histories)
 				del all_envs[name][i]
 				if match2 > -1:
-					saved_histories.append(History2.env_histories.pop(match2))
+					del History2.env_histories[match2]
 			else:
 				i = i + 1
 	
@@ -1405,7 +1424,6 @@ def merge_histories(History1, History2, commit_merge):
 	return history(commit_merge, merge_histories, commits[:i])
 				
 
-
 # Saving a history in histories/
 def write_away(History):
 	path = 'histories/' + History.commit
@@ -1421,6 +1439,11 @@ def load_back(commit):
 	fd.close()
 	return History
 
+# Removing a history from histories/
+def remove_from(commit):
+	path = 'histories/' + commit
+	os.remove(path)
+
 # Testing, testing
 
 #History = load_back('8801bdd0a58773df199fd8139f57edda174f9349')
@@ -1433,6 +1456,35 @@ print
 print_history_stats(History)
 
 commits = find_commits()
+print
+print "We have " + str(len(commits)) + " commits"
+
+commit_remove = {}
+commit_remove[0] = []
+
+def undo_remove(i, commit):
+	j = 0
+	while j < i:
+		if commit in commit_remove[j]:
+			commit_remove[j].remove(commit)
+		j = j + 1
+
+i = 1
+while i < len(commits):
+	commit = commits[i]
+	parents = find_parents(commit)
+	commit_remove[i] = parents
+	if len(parents) == 0 or len(parents) > 2:
+		print "Error: Wrong number of parents!"
+		exit(1)
+	if len(parents) == 2:
+		undo_remove(i, parents[0])
+		undo_remove(i, parents[1])
+	else:
+		undo_remove(i, parents[0])
+	if i % 250 == 0:
+		print i
+	i = i + 1
 
 debug = False
 
@@ -1458,8 +1510,9 @@ while i < len(commits):
 	# print_history_stats(History)
 	#if History.commit == '8801bdd0a58773df199fd8139f57edda174f9349':
 	#	exit(0)
+	for remove in commit_remove[i]:
+		remove_from(remove)
 	i = i + 1
-
 
 print_all_of_histories(History)
 print
