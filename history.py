@@ -94,22 +94,22 @@ def get_names(temp):
 
 # List files in given commit
 def get_names_commit(commit):
-	temp = subprocess.check_output(["git", "-C", "stacks-project", "ls-tree", "--name-only", commit])
+	temp = subprocess.check_output(["git", "-C", "../stacks-project", "ls-tree", "--name-only", commit])
 	return get_names(temp.splitlines())
 
 
-# Does a file exist at a given commit in stacks-project
+# Does a file exist at a given commit in ../stacks-project
 def exists_file(filename, commit):
-	if subprocess.check_output(["git", "-C", "stacks-project", "ls-tree", '--name-only', commit, '--', filename]):
+	if subprocess.check_output(["git", "-C", "../stacks-project", "ls-tree", '--name-only', commit, '--', filename]):
 		return True
 	return False
 
-# Get a file at given commit in stacks-project
+# Get a file at given commit in ../stacks-project
 # Assumes the file exists
 def get_file(filename, commit):
-	return subprocess.check_output(["git", "-C", "stacks-project", "cat-file", '-p', commit + ':' + filename])
+	return subprocess.check_output(["git", "-C", "../stacks-project", "cat-file", '-p', commit + ':' + filename])
 
-# Finds all environments in stacks-project/name.tex at given commit
+# Finds all environments in ../stacks-project/name.tex at given commit
 # and returns it as a pair [envs_with_proofs, envs_without_proofs]
 # of lists of classes as above
 def get_envs(name, commit):
@@ -288,7 +288,7 @@ def find_tags(commit):
 
 # Find parents of a commit
 def find_parents(commit):
-	commits = subprocess.check_output(["git", "-C", "stacks-project", "rev-list", "-n1", "--topo-order", "--parents", commit])
+	commits = subprocess.check_output(["git", "-C", "../stacks-project", "rev-list", "-n1", "--topo-order", "--parents", commit])
 	commits = commits.rstrip().split(' ')
 	if not commits[0] == commit:
 		print "Error: Unexpected format in find_parents."
@@ -302,9 +302,9 @@ def find_parents(commit):
 		exit(1)
 
 
-# Finds all commits in stacks-project
+# Finds all commits in ../stacks-project
 def find_commits():
-	commits = subprocess.check_output(["git", "-C", "stacks-project", "rev-list", "--topo-order", "master"])
+	commits = subprocess.check_output(["git", "-C", "../stacks-project", "rev-list", "--topo-order", "master"])
 	# Reverse the list so that 0 is the first one
 	return commits.splitlines()[::-1]
 
@@ -324,7 +324,7 @@ def next_commit(commit):
 # Get diff between two commits in a given file
 # commit_before should be prior in history to commit_after
 def get_diff_in(name, commit_before, commit_after):
-	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', name + '.tex'])
+	diff = subprocess.check_output(["git", "-C", "../stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', name + '.tex'])
 	return diff.splitlines()
 
 
@@ -393,7 +393,7 @@ def get_changes_in(name, commit_before, commit_after):
 # Gets a list of files changed between two commits
 # commit_before should be prior in history to commit_after
 def get_names_changed(commit_before, commit_after):
-	temp = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--name-only", commit_before + '..' + commit_after])
+	temp = subprocess.check_output(["git", "-C", "../stacks-project", "diff", "--name-only", commit_before + '..' + commit_after])
 	return get_names(temp.splitlines())
 
 
@@ -423,7 +423,7 @@ def get_tag_changes(commit_before, commit_after):
 	tags_removed = []
 	tags_added = []
 
-	diff = subprocess.check_output(["git", "-C", "stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', 'tags/tags'])
+	diff = subprocess.check_output(["git", "-C", "../stacks-project", "diff", "--patience", "-U0", commit_before + '..' + commit_after, '--', 'tags/tags'])
 	diff = diff.splitlines()
 
 	for line in diff:
