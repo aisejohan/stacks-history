@@ -1444,77 +1444,86 @@ def remove_from(commit):
 	path = 'histories/' + commit
 	os.remove(path)
 
-# Testing, testing
+# To see when commits have to be removed
+def compute_removal_order(commits, start):
 
-#History = load_back('8801bdd0a58773df199fd8139f57edda174f9349')
-#print_all_of_histories(History)
-#exit(0)
+	commit_remove = {}
+	commit_remove[start] = []
 
-History = initial_history()
-write_away(History)
-print
-print_history_stats(History)
+	def undo_remove(i, commit):
+		j = start
+		while j < i:
+			if commit in commit_remove[j]:
+				commit_remove[j].remove(commit)
+			j = j + 1
 
-commits = find_commits()
-print
-print "We have " + str(len(commits)) + " commits"
+	i = start + 1
+	while i < len(commits):
+		commit = commits[i]
+		parents = find_parents(commit)
+		commit_remove[i] = parents
+		if len(parents) == 0 or len(parents) > 2:
+			print "Error: Wrong number of parents!"
+			exit(1)
+		if len(parents) == 2:
+			undo_remove(i, parents[0])
+			undo_remove(i, parents[1])
+		else:
+			undo_remove(i, parents[0])
+		if i % 250 == 0:
+			print i
+		i = i + 1
 
-commit_remove = {}
-commit_remove[0] = []
+	return commit_remove
 
-def undo_remove(i, commit):
-	j = 0
-	while j < i:
-		if commit in commit_remove[j]:
-			commit_remove[j].remove(commit)
-		j = j + 1
 
-i = 1
-while i < len(commits):
-	commit = commits[i]
-	parents = find_parents(commit)
-	commit_remove[i] = parents
-	if len(parents) == 0 or len(parents) > 2:
-		print "Error: Wrong number of parents!"
-		exit(1)
-	if len(parents) == 2:
-		undo_remove(i, parents[0])
-		undo_remove(i, parents[1])
-	else:
-		undo_remove(i, parents[0])
-	if i % 250 == 0:
-		print i
-	i = i + 1
 
-debug = False
+def do_it_starting_with(commit):
 
-i = 1
-#History = load_back(commits[i - 1])
-while i < len(commits):
-	commit = commits[i]
-	parents = find_parents(commit)
-	if len(parents) == 2:
-		History1 = load_back(parents[0])
-		History2 = load_back(parents[1])
-		History = merge_histories(History1, History2, commit)
-		write_away(History)
-	else:
-		parent = parents[0]
-		if not History.commit == parent:
-			History = load_back(parent)
-		update_history(History, commit, debug)
-		write_away(History)
+	commits = find_commits()
+	print
+	print "We have " + str(len(commits)) + " commits"
+
+	start = commits.index(commit)
+
+	commit_remove = compute_removal_order(commits, start)
+
+	History = load_back(commit)
+
+	debug = False
+
+	i = start + 1
+	while i < len(commits):
+		commit = commits[i]
+		parents = find_parents(commit)
+		if len(parents) == 2:
+			History1 = load_back(parents[0])
+			History2 = load_back(parents[1])
+			History = merge_histories(History1, History2, commit)
+			write_away(History)
+		else:
+			parent = parents[0]
+			if not History.commit == parent:
+				History = load_back(parent)
+			update_history(History, commit, debug)
+			write_away(History)
+
+		print "Finished with commit: " + History.commit
+		for remove in commit_remove[i]:
+			remove_from(remove)
+		i = i + 1
+
+# Start from scratch
+def do_it_all():
+
+	History = initial_history()
+	write_away(History)
+
+	do_it_starting_with(History.commit)
 
 	print
-	print "Finished with commit: " + History.commit
-	# print_history_stats(History)
-	#if History.commit == '8801bdd0a58773df199fd8139f57edda174f9349':
-	#	exit(0)
-	for remove in commit_remove[i]:
-		remove_from(remove)
-	i = i + 1
-
-print_all_of_histories(History)
-print
-print_history_stats(History)
-exit(0)
+	print "Success!"
+	print
+	print "Here are some stats for the current history"
+	print
+	print_history_stats(History)
