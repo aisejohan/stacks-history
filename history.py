@@ -11,7 +11,7 @@ with_proofs = ['lemma', 'proposition', 'theorem']
 without_proofs = ['definition', 'example', 'exercise', 'situation', 'remark', 'remarks']
 
 # location of the stacks-project folder associated to stacks-website/ (relative to this file)
-websiteProject = "../stacks-website/tex"
+websiteProject = "../stacks-project"
 
 # each of these will collect the following data
 # name texfile, type, latex_label, tag,
@@ -594,6 +594,18 @@ def print_one_line(env):
 		print (env.name + ', ' + env.type + ', ' + env.label + ', ' + env.tag +
 			', ' + str(env.b) + ', ' + str(env.e) + ', ' + str(env.bp) + ', ' + str(env.ep))
 
+# Print a history
+def print_env_history(env_h):
+	print "Commit: "
+	print env_h.commit
+	print "Environment: "
+	print_env(env_h.env)
+	print "Commits: "
+	for commit in env_h.commits:
+		print commit
+	print "Environments: "
+	for env in env_h.envs:
+		print_env(env)
 
 def print_all_of_histories(History):
 	print "We are at commit: " + History.commit
@@ -1181,26 +1193,44 @@ def update_history(History, commit_after, debug):
 						if env.name == env_h.env.name and env.type == env_h.env.type and env.label == env_h.env.label and env.b == env_h.env.b:
 							duplicates.append(j)
 						j = j + 1
+					if len(duplicates) == 0:
+						print commit_before
+						print commit_after
+						print 'Error: Actually not a duplicate but missing! Not fixable!'
+						exit(1)
 					if len(duplicates) == 1:
-						print name
 						print commit_before
 						print commit_after
 						print 'Error: Not fixable!'
 						exit(1)
 					# This should probably not happen
 					if len(duplicates) > 2:
+						print commit_before
+						print commit_after
 						print 'Error: do not know how to handle more than 2 duplicates.'
 						exit(1)
 					# Merge them; the newer one should be put on top of the old one
-					# There should be three ways to recognize which is which
+					# There should be several ways to recognize which is which, listed
+					# in order of decreasing confidence
 					#
-					# 1) The one with the higher index is newer
-					# 2) The one with the longer proof is newer
-					# 3) The one with the shorter history is newer
-					#
-					# Expected
-					if len(History.env_histories[duplicates[0]].commits) >= len(History.env_histories[duplicates[1]].commits) and \
-						len(History.env_histories[duplicates[0]].env.proof) <= len(History.env_histories[duplicates[1]].env.proof):
+					# 1) The one where history starts with this commit should be deleted
+					# 2) The one with the shorter history is newer
+					# 3) The one with the higher index should be newer
+					fix = 0
+					if len(History.env_histories[duplicates[1]].commits) == 1 and History.env_histories[duplicates[1]].commit == History.env_histories[duplicates[1]].commits[0]:
+						print 'Best case scenario: newer one created this time.'
+						fix = 1
+					if not fix and len(History.env_histories[duplicates[0]].commits) > len(History.env_histories[duplicates[1]].commits):
+						print 'Second best scenario: newer one shorter history.'
+						fix = 1
+					if not fix and duplicates[1] > duplicates[0]:
+						print 'Third best scenario: looking at indices.'
+						fix = 1
+					if fix:
+						# double check our logic...
+						if History.env_histories[duplicates[0]].commits[0] == commit_after:
+							print 'Unexpected event in duplicate histories! Stop.'
+							exit(1)
 						# update environment history of old with new
 						update_env_history(History.env_histories[duplicates[0]], commit_after, History.env_histories[duplicates[1]].env)
 						del History.env_histories[duplicates[1]]
@@ -1208,6 +1238,10 @@ def update_history(History, commit_after, debug):
 						if duplicates[1] <= i:
 							i = i - 1
 					else:
+						print '----------------------------------------------------------------------------------'
+						print_env_history(History.env_histories[duplicates[0]])
+						print '----------------------------------------------------------------------------------'
+						print_env_history(History.env_histories[duplicates[1]])
 						print 'Error: something unexpected happend while fixing!'
 						exit(1)
 					print 'Fixed!'
@@ -1531,8 +1565,8 @@ def do_it_all():
 	print_history_stats(History)
 
 # Uncomment the next two lines if you want to start from scratch
-#do_it_all()
-#exit(0)
+do_it_all()
+exit(0)
 
 commit = raw_input("Which commit do you want to start with?\n")
 
