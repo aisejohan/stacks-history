@@ -282,7 +282,7 @@ def find_tags(commit):
 
 	for line in tagsfile:
 		if not line.find('#') == 0:
-                        taglabel = line.split(",")
+			taglabel = line.split(",")
 			tags[taglabel[1]] = taglabel[0]
 
 	return tags
@@ -396,7 +396,17 @@ def get_changes_in(name, commit_before, commit_after):
 # commit_before should be prior in history to commit_after
 def get_names_changed(commit_before, commit_after):
 	temp = subprocess.check_output(["git", "-C", websiteProject, "diff", "--name-only", commit_before + '..' + commit_after])
-	return get_names(temp.splitlines())
+	names_changed = get_names(temp.splitlines())
+	# Look for deleted files
+	list_before = get_names_commit(commit_before)
+	list_after = get_names_commit(commit_after)
+	for name in list_before:
+		if not name in list_after:
+			print "Info: deleted file: " + name
+			# the following should not be necessary, but what the heck
+			if name not in names_changed:
+				names_changed.append(name)
+	return names_changed
 
 
 # Gets a list of line_nr changes between two commits
@@ -686,7 +696,7 @@ def env_before_is_changed(env, all_changes):
 	lines_added = all_changes[env.name][1]
 	i = 0
 	while i < len(lines_removed):
-		start =  lines_removed[i][0]
+		start = lines_removed[i][0]
 		nr = lines_removed[i][1]
 		position = logic_of_pairs(start, nr, env.b, env.e)
 		if position == 0:
@@ -708,7 +718,7 @@ def env_before_is_changed(env, all_changes):
 
 	# The proof could still be after the chunk we are at
 	while i < len(lines_removed):
-		start =  lines_removed[i][0]
+		start = lines_removed[i][0]
 		nr = lines_removed[i][1]
 		position = logic_of_pairs(start, nr, env.bp, env.ep)
 		if position == 0:
@@ -757,6 +767,16 @@ def text_match(env1, env2):
 # Simplest kind of match: name, label, type all match
 def label_match(env_b, env_a):
 	if (env_b.name == env_a.name and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
+		return True
+	# Take care of files which were renamed
+	# We can find these renames using git also...
+	if (env_b.name == 'intersections' and env_a.name == 'chow' and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
+		return True
+	if (env_b.name == 'fpqc-descent' and env_a.name == 'descent' and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
+		return True
+	if (env_b.name == 'results' and env_a.name == 'limits' and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
+		return True
+	if (env_b.name == 'groupoid-schemes' and env_a.name == 'groupoids' and env_b.type == env_a.type and env_b.label == env_a.label and not env_a.label == ''):
 		return True
 	return False
 
@@ -864,7 +884,7 @@ def do_these_match(i, j, a, top, envs_h_b, envs_a, matches_a, matches_b, scores,
 			left_a = left_a + 1
 	left_b = len(envs_h_b) - len(matches_b)
 	print
-        print "Commit after: " + commit_after
+	print "Commit after: " + commit_after
 	print "There are " + str(left_b) + " left to match and " + str(left_a) + " choices left."
 	print
 	print "MATCH by score: " + str(scores[a][0])
@@ -894,7 +914,7 @@ def update_history(History, commit_after, debug):
 	envs_h_b = []
 	for env_h in History.env_histories:
 		env = env_h.env
-                # The following line
+		# The following line
 		#	updates line numbers of env if not changed
 		#	passes if env is changed
 		if env_before_is_changed(env, all_changes):
@@ -908,10 +928,10 @@ def update_history(History, commit_after, debug):
 
 	# List of new or changed envs in this commit
 	envs_a = []
-        all_envs = {}
+	all_envs = {}
 	for name in all_changes:
 		envs = get_envs(name, commit_after)
-                all_envs[name] = envs
+		all_envs[name] = envs
 		for env in envs:
 			# The following line passes if env is changed
 			if env_after_is_changed(env, all_changes):
@@ -1071,7 +1091,7 @@ def update_history(History, commit_after, debug):
 			continue
 		new_labels[label] = tag
 
-        # Get dictionary labels ---> tags
+	# Get dictionary labels ---> tags
 	tags = find_tags(commit_after)
 	# We need to add tags to new_labels to make sure all new envs get correct tag
 	for env in envs_a:
@@ -1228,7 +1248,7 @@ def update_history(History, commit_after, debug):
 						fix = 1
 					if fix:
 						# double check our logic...
-						if History.env_histories[duplicates[0]].commits[0] == commit_after:
+						if History.env_histories[duplicates[0]].commits[-1] == commit_after:
 							print 'Unexpected event in duplicate histories! Stop.'
 							exit(1)
 						# update environment history of old with new
