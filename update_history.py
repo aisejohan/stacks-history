@@ -43,7 +43,7 @@ def createChange(commit, tag, env, action, begin, end):
 		return
 
 	Change.create(tag=tag,
-		hash=commit,
+		commit=commit,
 		filename=env.name,
 		action=action,
 		label=env.label,
@@ -108,7 +108,7 @@ for env_h in history.env_histories:
 			# this also triggers when a tag is changed; this is very rare
 			createChange(commit, tag_h, env, "tag", env.b, env.e)
 			tag = env.tag
-		
+
 		if env.label != label:
 			# either creation or change in label
 			createChange(commit, tag_h, env, "label", env.b, env.e)
