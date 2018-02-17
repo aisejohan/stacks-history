@@ -1378,10 +1378,8 @@ def put_into_merge_history(env, histories, match, tags, commit, merge_histories)
 	histories[match].env = env
 	# Update the commit
 	histories[match].commit = commit
-	# Add it to the list
-	merge_histories.append(histories[match])
-	# Delete it
-	del histories[match]
+	# Add it to the list and remove from histories
+	merge_histories.append(histories.pop(match))
 
 
 # Merge two histories
@@ -1419,8 +1417,21 @@ def merge_histories(History1, History2, commit_merge):
 			match2 = temp[0]
 			score2 = temp[1]
 
-			# First the case where match2 wins
-			if score2 > score1:
+			# First the case where scores are the same
+			if score2 == score1 and score1 > 0:
+				if score2 < 1:
+					print 'Merge match by score: ' + str(score2)
+					print_one_line(env)
+				# We pick the one with longer history, usually the only difference is commit recording tag assignment
+				if len(History2.env_histories[match2].commits) > len(History1.env_histories[match1].commits):
+					put_into_merge_history(env, History2.env_histories, match2, tags, commit_merge, merge_histories)
+					del History1.env_histories[match1]
+				else:
+					put_into_merge_history(env, History1.env_histories, match1, tags, commit_merge, merge_histories)
+					del History2.env_histories[match2]
+				del all_envs[name][i]
+			# Next the case where match2 wins
+			elif score2 > score1:
 				if score2 < 1:
 					print 'Merge match by score: ' + str(score2)
 					print_one_line(env)
@@ -1428,6 +1439,7 @@ def merge_histories(History1, History2, commit_merge):
 				del all_envs[name][i]
 				if match1 > -1:
 					del History1.env_histories[match1]
+			# The case where match1 wins
 			elif score1 > 0:
 				if score1 < 1:
 					print 'Merge match by score: ' + str(score1)
@@ -1577,12 +1589,7 @@ def do_it_all():
 
 	do_it_starting_with(History.commit)
 
-	print
 	print "Success!"
-	print
-	print "Here are some stats for the current history"
-	print
-	print_history_stats(History)
 
 # Uncomment the next two lines if you want to start from scratch
 do_it_all()
