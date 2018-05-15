@@ -1406,9 +1406,11 @@ def do_it_all():
 	print("Success!")
 
 # Uncomment the next two lines if you want to start from scratch
-do_it_all()
-exit(0)
+#do_it_all()
+#exit(0)
 
+print("Working with the following website-project directory: ")
+print(websiteProject)
 commit = input("Which commit do you want to start with?\n")
 
 if not os.path.isfile("histories/" + commit):

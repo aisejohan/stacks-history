@@ -9,8 +9,13 @@ from definitions_history import *
 from functions_history import *
 
 from gerby.database import *
-DATABASE = "stacks.sqlite"
-db.init(DATABASE)
+import gerby.configuration
+
+print("Working with the following website-project directory: ")
+print(websiteProject)
+print("Changing the following database: ")
+print(gerby.configuration.DATABASE)
+db.init(gerby.configuration.DATABASE)
 
 
 logging.basicConfig(stream=sys.stdout)
@@ -50,7 +55,12 @@ def createChange(commit, tag, env, action, begin, end):
 		begin=begin,
 		end=end)
 
-history = load_back('409ad56f2fda051e73bcac77b97777907bcb6355')
+
+user_input_commit = input("Which commit do you want to import?\n")
+if not os.path.isfile("histories/" + user_input_commit):
+	print("ERROR: This commit does not exist in histories/")
+history = load_back(user_input_commit)
+
 
 # This loop adds Subject, time, author for commits
 for commit in history.commits:
