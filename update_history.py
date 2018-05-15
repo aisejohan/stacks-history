@@ -11,22 +11,27 @@ from functions_history import *
 from gerby.database import *
 import gerby.configuration
 
-print("Working with the following website-project directory: ")
+print("We will work with the following website-project directory: ")
 print(websiteProject)
-print("Changing the following database: ")
+print("We will change the following database: ")
 print(gerby.configuration.DATABASE)
+
+user_input_commit = input("Which commit do you want to import?\n")
+if not os.path.isfile("histories/" + user_input_commit):
+	print("ERROR: This commit does not exist in histories/")
+	exit(1)
+
+history = load_back(user_input_commit)
+
+# check if database exists
+if not os.path.isfile(gerby.configuration.DATABASE):
+	print("ERROR: the database %s does not exist!", gerby.configuration.DATABASE)
+	exit(1)
+
 db.init(gerby.configuration.DATABASE)
-
-
 logging.basicConfig(stream=sys.stdout)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
-
-# create database if it doesn't exist already
-if not os.path.isfile(DATABASE):
-	for model in [Tag, Proof, Extra, Comment]:
-		model.create_table()
-	log.info("Created database")
 
 # managing history
 Change.drop_table() # TODO always drop Change table?
@@ -54,12 +59,6 @@ def createChange(commit, tag, env, action, begin, end):
 		label=env.label,
 		begin=begin,
 		end=end)
-
-
-user_input_commit = input("Which commit do you want to import?\n")
-if not os.path.isfile("histories/" + user_input_commit):
-	print("ERROR: This commit does not exist in histories/")
-history = load_back(user_input_commit)
 
 
 # This loop adds Subject, time, author for commits
