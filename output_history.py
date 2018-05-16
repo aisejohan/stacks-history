@@ -2,8 +2,14 @@
 from definitions_history import *
 from functions_history import *
 from print_functions_history import *
+import os
 
-H = load_back('9c7d793a723c2b531525ddd55fde6f42220af1af')
+user_input_commit = input("Which commit do you want to print?\n")
+if not os.path.isfile("histories/" + user_input_commit):
+	print("ERROR: This commit does not exist in histories/")
+	exit(1)
+
+H = load_back(user_input_commit)
 
 #print_history_stats(H)
 #print_particular_history(H, 'algebra', 'lemma-NAK')

@@ -189,5 +189,12 @@ def load_back(commit):
 	fd.close()
 	return History
 
-H = load_back('409ad56f2fda051e73bcac77b97777907bcb6355')
+
+user_input_commit = raw_input("Which commit do you want to print?\n")
+
+if not os.path.isfile("histories/" + user_input_commit):
+	print "ERROR: This commit does not exist in histories/"
+	exit(1)
+
+H = load_back(user_input_commit)
 print_all_of_histories(H)

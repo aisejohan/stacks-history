@@ -4,6 +4,7 @@ import re
 import Levenshtein
 import copy
 import cPickle as pickle
+import os
 
 with_proofs = ['lemma', 'proposition', 'theorem']
 without_proofs = ['definition', 'example', 'exercise', 'situation', 'remark', 'remarks']
@@ -123,5 +124,11 @@ def print_particular_history(History, name, label):
 	print '\\end{document}'
 
 
-History = load_back('5b422bc40419ce8e1c682591edb8d17eea4e1c8f')
+user_input_commit = raw_input("Which commit do you want to print?\n")
+
+if not os.path.isfile("histories/" + user_input_commit):
+       print "ERROR: This commit does not exist in histories/"
+       exit(1)
+
+History = load_back(user_input_commit)
 print_particular_history(History, 'algebra', 'lemma-NAK')
