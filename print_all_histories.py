@@ -103,7 +103,7 @@ class history:
 
 def print_history_stats(History):
 	print "We are at commit: " + History.commit
-	print "We have done " + str(len(History.commits)) + " previous commits:"
+	print "We have " + str(len(History.commits) + 1) + " commits"
 	print "We have " + str(len(History.env_histories)) + " histories"
 	names = {}
 	types = {}
@@ -155,9 +155,10 @@ def print_env_history(env_h):
 # Just the stats, really
 def print_all_of_histories(History):
 	print "We are at commit: " + History.commit
-	print "We have done " + str(len(History.commits)) + " previous commits:"
+	print "We have " + str(len(History.commits) + 1) + " commits:"
 	for commit in History.commits:
 		print commit
+	print History.commit
 	print "We have " + str(len(History.env_histories)) + " histories"
 	for env_h in History.env_histories:
 		print '--------------------------------------------------------------------------'

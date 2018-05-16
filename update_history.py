@@ -60,21 +60,29 @@ def createChange(commit, tag, env, action, begin, end):
 		begin=begin,
 		end=end)
 
+# Add subject, time, author and put it in database
+def createCommit(commit):
+	try:
+		# TODO make this the whole commit message
+		subject = subprocess.check_output(["git --git-dir " + websiteProject + "/.git log " + commit + " --pretty=format:%B -n 1"], stderr=subprocess.STDOUT, shell=True)
+		subject = subject.decode("latin-1", "backslashreplace")
+		time = subprocess.check_output(["git --git-dir " + websiteProject + "/.git log " + commit + " --pretty=format:%ai -n 1"], stderr=subprocess.STDOUT, shell=True)
+		author = subprocess.check_output(["git --git-dir " + websiteProject + "/.git log " + commit + " --pretty=format:%an -n 1"], stderr=subprocess.STDOUT, shell=True)
+		Commit.create(hash=commit, author=author, log=subject, time=time)
+	except subprocess.CalledProcessError:
+		# this can happen when the history file was not created from the repository which is now used (which is not a common situation I guess)
+		log.error("There is a discrepancy between the history file and the Git repository")
 
-# This loop adds Subject, time, author for commits
+
+# Here we create database entries for new commits
 for commit in history.commits:
 	if not Commit.select().where(Commit.hash == commit).exists():
-		print(commit)
-		try:
-			# TODO make this the whole commit message
-			subject = subprocess.check_output(["git --git-dir " + websiteProject + "/.git log " + commit + " --pretty=format:%B -n 1"], stderr=subprocess.STDOUT, shell=True)
-			subject = subject.decode("latin-1", "backslashreplace")
-			time = subprocess.check_output(["git --git-dir " + websiteProject + "/.git log " + commit + " --pretty=format:%ai -n 1"], stderr=subprocess.STDOUT, shell=True)
-			author = subprocess.check_output(["git --git-dir " + websiteProject + "/.git log " + commit + " --pretty=format:%an -n 1"], stderr=subprocess.STDOUT, shell=True)
-			Commit.create(hash=commit, author=author, log=subject, time=time)
-		except subprocess.CalledProcessError:
-			# this can happen when the history file was not created from the repository which is now used (which is not a common situation I guess)
-			log.error("There is a discrepancy between the history file and the Git repository")
+		print("Adding database entry for commit %s" % commit)
+		createCommit(commit)
+# Create database entry for current commit if new
+if not Commit.select().where(Commit.hash == history.commit).exists():
+	print("Adding database entry for commit %s" % history.commit)
+	createCommit(history.commit)
 
 
 for env_h in history.env_histories:
