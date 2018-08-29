@@ -75,81 +75,83 @@ def createCommit(commit):
 
 
 # Here we create database entries for new commits
-for commit in history.commits:
-	if not Commit.select().where(Commit.hash == commit).exists():
-		print("Adding database entry for commit %s" % commit)
-		createCommit(commit)
+with db.atomic():
+	for commit in history.commits:
+		if not Commit.select().where(Commit.hash == commit).exists():
+			print("Adding database entry for commit %s" % commit)
+			createCommit(commit)
 # Create database entry for current commit if new
 if not Commit.select().where(Commit.hash == history.commit).exists():
 	print("Adding database entry for commit %s" % history.commit)
 	createCommit(history.commit)
 
 
-for env_h in history.env_histories:
-	# if no tag is present the environment isn't tagged yet, so we ignore it
-	if env_h.env.tag == "":
-		continue
+with db.atomic():
+	for env_h in history.env_histories:
+		# if no tag is present the environment isn't tagged yet, so we ignore it
+		if env_h.env.tag == "":
+			continue
 
-	# tag we have ended up with
-	tag_h = env_h.env.tag
+		# tag we have ended up with
+		tag_h = env_h.env.tag
 
-	# these track what happens during the history
-	label = ""
-	tag = ""
-	name = ""
-	text = ""
-	proof = ""
+		# these track what happens during the history
+		label = ""
+		tag = ""
+		name = ""
+		text = ""
+		proof = ""
 
-	print("Considering the history of tag %s" % tag_h)
+		print("Considering the history of tag %s" % tag_h)
 
-	length = len(env_h.commits)
-	i = 0
-	while i < length:
-		# where we are at now
-		commit = env_h.commits[i]
-		env = env_h.envs[i]
+		length = len(env_h.commits)
+		i = 0
+		while i < length:
+			# where we are at now
+			commit = env_h.commits[i]
+			env = env_h.envs[i]
 
-		if i == 0:
-			# Creation of this piece of mathematics
-			# line numbers refer to statement and ignore proof if there is a proof
-			createChange(commit, tag_h, env, "creation", env.b, env.e)
-			label = env.label
-			name = env.name
-			text = env.text
-			if hasattr(env, "proof"):
-				proof = env.proof
-			# Do not assign tag yet if there is one
+			if i == 0:
+				# Creation of this piece of mathematics
+				# line numbers refer to statement and ignore proof if there is a proof
+				createChange(commit, tag_h, env, "creation", env.b, env.e)
+				label = env.label
+				name = env.name
+				text = env.text
+				if hasattr(env, "proof"):
+					proof = env.proof
+				# Do not assign tag yet if there is one
 
-		if env.tag != tag:
-			# first commit with tag
-			# this also triggers when a tag is changed; this is very rare
-			createChange(commit, tag_h, env, "tag", env.b, env.e)
-			tag = env.tag
+			if env.tag != tag:
+				# first commit with tag
+				# this also triggers when a tag is changed; this is very rare
+				createChange(commit, tag_h, env, "tag", env.b, env.e)
+				tag = env.tag
 
-		if env.label != label:
-			# either creation or change in label
-			createChange(commit, tag_h, env, "label", env.b, env.e)
-			label = env.label
+			if env.label != label:
+				# either creation or change in label
+				createChange(commit, tag_h, env, "label", env.b, env.e)
+				label = env.label
 
-		if env.name != name:
-			# change of file
-			createChange(commit, tag_h, env, "move file", env.b, env.e)
-			name = env.name
+			if env.name != name:
+				# change of file
+				createChange(commit, tag_h, env, "move file", env.b, env.e)
+				name = env.name
 
-		if env.text != text:
-			# change in statement
-			# this could be an invisible change such as slogan, reference, historical remark
-			if hasattr(env, "proof") and env.proof != proof:
-				# line numbers point to beginning of statement and end of proof
-				createChange(commit, tag_h, env, "statement and proof", env.b, env.ep)
-				proof = env.proof
+			if env.text != text:
+				# change in statement
+				# this could be an invisible change such as slogan, reference, historical remark
+				if hasattr(env, "proof") and env.proof != proof:
+					# line numbers point to beginning of statement and end of proof
+					createChange(commit, tag_h, env, "statement and proof", env.b, env.ep)
+					proof = env.proof
+				else:
+					# line numbers of statement
+					createChange(commit, tag_h, env, "statement", env.b, env.e)
+				text = env.text
 			else:
-				# line numbers of statement
-				createChange(commit, tag_h, env, "statement", env.b, env.e)
-			text = env.text
-		else:
-			if hasattr(env, "proof") and env.proof != proof:
-				createChange(commit, tag_h, env, "proof", env.bp, env.ep)
-				proof = env.proof
+				if hasattr(env, "proof") and env.proof != proof:
+					createChange(commit, tag_h, env, "proof", env.bp, env.ep)
+					proof = env.proof
 
-		i = i + 1
+			i = i + 1
